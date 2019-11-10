@@ -654,8 +654,8 @@ process combine_soft_filter_vcfs {
       set file("soft_filtered_indels.vcf"), file("soft_filtered_indels.vcf.idx") from soft_filter_indels
 
     output:
-      set file("WI.soft-filter.vcf.gz"), file("WI.soft-filter.vcf.gz.tbi") into soft_filtered_cohort_vcf
-      file("WI.soft-filter.stats.txt") into soft_filtered_stats_to_mqc
+      set file("WI.${date}.soft-filter.vcf.gz"), file("WI.${date}.soft-filter.vcf.gz.tbi") into soft_filtered_cohort_vcf
+      file("WI.${date}.soft-filter.stats.txt") into soft_filtered_stats_to_mqc
 
 
     """
@@ -670,10 +670,10 @@ process combine_soft_filter_vcfs {
       --allow-overlaps \\
       soft_filtered_indels.vcf.gz \\
       soft_filtered_snps.vcf.gz | \\
-      bcftools filter -Oz --threads ${task.cpus-1} --mode + --soft-filter high_missing --include "F_MISSING<=${params.missing}" > WI.soft-filter.vcf.gz
+      bcftools filter -Oz --threads ${task.cpus-1} --mode + --soft-filter high_missing --include "F_MISSING<=${params.missing}" > WI.${date}.soft-filter.vcf.gz
 
-      tabix -p vcf WI.soft-filter.vcf.gz
-      bcftools stats --verbose WI.soft-filter.vcf.gz > WI.soft-filter.stats.txt
+      tabix -p vcf WI.${date}.soft-filter.vcf.gz
+      bcftools stats --verbose WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
     """
 }
 
@@ -883,10 +883,10 @@ process generate_hard_vcf {
         set file(softvcf), file(softvcfindex) from soft_filtered_vcf_to_hard
 
     output:
-        set file("WI.HARD-FILTERED.vcf.gz"), file("WI.HARD-FILTERED.vcf.gz.tbi") into hard_vcf
-        set val("hard"), file("WI.HARD-FILTERED.vcf.gz"), file("WI.HARD-FILTERED.vcf.gz.tbi") into hard_vcf_summary
-        set val("hard"), file("WI.HARD-FILTERED.vcf.gz"), file("WI.HARD-FILTERED.vcf.gz.tbi") into hard_sample_summary
-        file("WI.HARD-FILTERED.stats.txt") into hard_filter_stats
+        set file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi") into hard_vcf
+        set val("hard"), file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi") into hard_vcf_summary
+        set val("hard"), file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi") into hard_sample_summary
+        file("WI.${date}.hard-filter.stats.txt") into hard_filter_stats
 
 
     """
@@ -905,11 +905,11 @@ process generate_hard_vcf {
 
         parallel --verbose generate_hard_filter {} ::: I II III IV V X MtDNA
 
-        bcftools concat -O z I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz > WI.HARD-FILTERED.vcf.gz
+        bcftools concat -O z I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz > WI.${date}.hard-filter.vcf.gz
         
-        tabix -p vcf WI.HARD-FILTERED.vcf.gz
+        tabix -p vcf WI.${date}.hard-filter.vcf.gz
 
-        bcftools stats --verbose WI.HARD-FILTERED.vcf.gz > WI.HARD-FILTERED.stats.txt
+        bcftools stats --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
 
         # Remove extra files
         rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
@@ -974,7 +974,7 @@ process concat_imputed {
         file(index) from imp_i_to_concat
 
     output:
-        set file("WI.COMPLETE-SOFT-FILTER_IMPUTED.vcf.gz"), file("WI.COMPLETE-SOFT-FILTER_IMPUTED.vcf.gz.tbi") into cohort_impute
+        set file("WI.${date}.impute.vcf.gz"), file("WI.${date}.impute.vcf.gz.tbi") into cohort_impute
 
     """
       bcftools concat \\
@@ -986,8 +986,8 @@ process concat_imputed {
       V_imp.vcf.gz \\
       X_imp.vcf.gz \\
       MtDNA_imp.vcf.gz |\\
-      bcftools view -Oz -o WI.COMPLETE-SOFT-FILTER_IMPUTED.vcf.gz
+      bcftools view -Oz -o WI.${date}.impute.vcf.gz
 
-      tabix -p vcf WI.COMPLETE-SOFT-FILTER_IMPUTED.vcf.gz
+      tabix -p vcf WI.${date}.impute.vcf.gz
     """
 }
