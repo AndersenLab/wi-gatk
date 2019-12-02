@@ -7,6 +7,12 @@
 */
 nextflow.preview.dsl=2
 
+// For now, this pipeline requires NXF_VER 19.09.0
+// Prefix this version when running
+// e.g.
+// NXF_VER=19.09.0-edge nextflow run ...
+assert System.getenv("NXF_VER") == "19.09.0-edge"
+
 /*
     Params
 */
@@ -15,6 +21,19 @@ date = new Date().format( 'yyyyMMdd' )
 params.debug = false
 params.email = ""
 params.reference = "${workflow.projectDir}/WS245/WS245.fa.gz"
+reference_uncompressed = file(params.reference.replace(".gz", ""), checkExists: true)
+parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk")
+
+// Debug
+if (params.debug.toString() == "true") {
+    params.output = "release-${date}-debug"
+    params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
+    params.bamdir = "${workflow.projectDir}/test_data"
+} else {
+    // The strain sheet that used for 'production' is located in the root of the git repo
+    params.output = "alignment-${date}"
+    params.sample_sheet = "sample_sheet.tsv"
+}
 
 params.bamdir                 = null
 params.out_base               = null
@@ -66,9 +85,10 @@ out += """
 
     parameters              description                    Set/Default
     ==========              ===========                    ========================
-    BAM Directory                       = ${params.bamdir}
+    --bamdir                bam directory                  ${params.bamdir}
+    --sample_sheet          sample sheet                   ${params.sample_sheet}
     CPUs                                = ${params.cores}
-    Run mode                            = ${params.mode}
+    debug                               = ${params.debug}
     Region file.                        = ${params.interval_bed}
     Output folder                       = ${params.out}
 
@@ -79,6 +99,11 @@ out
 
 if (params.help) {
     log_summary()
+    exit 1
+}
+
+if (workflow.profile == "") {
+    println "Must set -profile: local, quest, gcp"
     exit 1
 }
 
@@ -103,18 +128,6 @@ if (params.help) {
 // cegff = Channel.fromPath(params.gff)
 
 // /*
-// ~ ~ ~ > * Reference File 
-// */
-
-// File reference = new File("${params.reference}")
-// if (params.reference != "(required)") {
-//    reference_handle = reference.getAbsolutePath();
-//    reference_handle_uncompressed = reference_handle.replace(".gz", "")
-// } else {
-//    reference_handle = "(required)"
-// }
-
-// /*
 // ~ ~ ~ > * BAM FILE 
 // */
 
@@ -136,144 +149,130 @@ if (params.help) {
 //         bam_recall}
 
 
-// /*
-// ===========================================
-// ~ > *                                 * < ~
-// ~ ~ > *                             * < ~ ~
-// ~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
-// ~ ~ > *                             * < ~ ~ 
-// ~ > *                                 * < ~
-// ===========================================
-// */
+/*
+===========================================
+~ > *                                 * < ~
+~ ~ > *                             * < ~ ~
+~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
+~ ~ > *                             * < ~ ~ 
+~ > *                                 * < ~
+===========================================
+*/
 
-// if (params.mode=="test"){
+process split_genome {
 
-//   File interval_bed = new File("${params.interval_bed}")
-//   interval_bed_path = interval_bed.getAbsolutePath()
+    label 'md'
 
-//   println "RUNNING PIPELINE ON TEST DATA SET"
+    conda "gatk4=4.1.4.0"
 
-//   process split_genome_test {
+    output:
+        path "scatter/*-scattered.interval_list"
 
-//     executor 'local'
-//     cpus 1
-//     time '1h'
+    script:
+        intervals = params.interval_bed != "" ?  "-L ${params.interval_bed}" : ""
 
-//     output:
-//     file "scatter/*-scattered.interval_list" into interval_ch
+    """
+    gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
+        SplitIntervals \\
+        -R ${reference_uncompressed} \\
+        ${intervals} \\
+        --subdivision-mode BALANCING_WITHOUT_INTERVAL_SUBDIVISION \\
+        --scatter-count 20 \\
+        -ip 250 \\
+        -O scatter
+    """
+}
 
-//     script:
-//     """
-//     gatk --java-options "-Xmx4g -Xms4g" \\
-//      SplitIntervals \\
-//         -R ${reference_handle_uncompressed} \\
-//         -L ${interval_bed_path} \\
-//         --subdivision-mode BALANCING_WITHOUT_INTERVAL_SUBDIVISION \\
-//         -ip 250 \\
-//         --scatter-count 20 \\
-//         -O scatter
-//     """
+process get_contigs {
 
-//   }
+    label 'sm'
 
-// } else if (params.mode=="run") { 
+    input:
+        tuple row, strain, path(bam), path(bai)
 
-//   File interval_bed = new File("${params.interval_bed}")
-//   interval_bed_path = interval_bed.getAbsolutePath()
+    output:
+        path("contigs.txt")
 
-//   println "RUNNING PIPELINE ON FULL DATA SET"
+    """
+        samtools idxstats ${bam} | cut -f 1 | grep -v '*' > contigs.txt
+    """
 
-//   process split_genome_full {
+}
 
-//     cpus 1
-//     memory '4 GB' 
-//     time '1h'
+// Read sample sheet
+sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+                      .ifEmpty { exit 1, "sample sheet not found" }
+                      .splitCsv(header:true, sep: "\t")
+                      .map { row -> [row, 
+                                     row.strain, 
+                                     file("${params.bamdir}/${row.strain}.bam", checkExists: true),
+                                     file("${params.bamdir}/${row.strain}.bam.bai", checkExists: true)] }.view()
 
-//     output:
-//     file "scatter/*-scattered.interval_list" into interval_ch
+workflow {
 
-//     script:
-//     """
-//     gatk --java-options "-Xmx4g -Xms4g" \\
-//      SplitIntervals \\
-//         -R ${reference_handle_uncompressed} \\
-//         --subdivision-mode BALANCING_WITHOUT_INTERVAL_SUBDIVISION \\
-//         --scatter-count 20 \\
-//         -ip 250 \\
-//         -O scatter
-//     """
+    // Get contigs from first bam
+    sample_sheet.first() | get_contigs
+    contigs = get_contigs.out.splitText()
 
-//   }
-
-// } else {  println "ERROR: wrong value for --mode option. Must be test or run"; System.exit(0) }
-
-
-
-// bam_first_call
-//   .spread(interval_ch)
-//   .set{first_call_bams}
+    //split_genome()
+}
 
 // /*
 // =============================================
-// ~ > *                                   * < ~
-// ~ ~ > *                               * < ~ ~
 // ~ ~ ~ > * Run GATK4 HaplotypeCaller * < ~ ~ ~ 
-// ~ ~ > *                               * < ~ ~ 
-// ~ > *                                   * < ~
 // =============================================
 // */
 
-// process call_variants_individual {
+process call_variants_individual {
 
-//     memory '64 GB'
+    label 'lg'
 
-//     tag { "${SM} - ${region}" }
-//     cpus params.cpu
+    tag { "${SM} - ${region}" }
 
-//     input:
-//       set val(SM), file(smbam), file(smbambai), file(region) from first_call_bams
+    input:
+      set val(SM), file(smbam), file(smbambai), file(region) from first_call_bams
 
-//     output:
-//       set val(SM), file("${SM}.${int_tag}.g.vcf"), file("${SM}.${int_tag}.g.vcf.idx") into individual_sites
-//       set val(SM), file(region), file("*sample_map.txt") into sample_map
+    output:
+      set val(SM), file("${SM}.${int_tag}.g.vcf"), file("${SM}.${int_tag}.g.vcf.idx") into individual_sites
+      set val(SM), file(region), file("*sample_map.txt") into sample_map
 
-//     script:
-//       int_tag = region.baseName
+    script:
+      int_tag = region.baseName
 
-//     """
-//       gatk HaplotypeCaller --java-options "-Xmx32g -Xms32g" \\
-//           -R ${reference_handle_uncompressed} \\
-//           -I ${smbam} \\
-//           --emit-ref-confidence GVCF \\
-//           --genotyping-mode DISCOVERY \\
-//           --max-genotype-count 3000 \\
-//           --max-alternate-alleles 100 \\
-//           --annotation DepthPerAlleleBySample \\
-//           --annotation Coverage \\
-//           --annotation GenotypeSummaries \\
-//           --annotation TandemRepeat \\
-//           --annotation StrandBiasBySample \\
-//           --annotation ChromosomeCounts \\
-//           --annotation AS_QualByDepth \\
-//           --annotation AS_StrandOddsRatio \\
-//           --annotation AS_MappingQualityRankSumTest \\
-//           --annotation DepthPerSampleHC \\
-//           --annotation-group StandardAnnotation \\
-//           --annotation-group AS_StandardAnnotation \\
-//           --annotation-group StandardHCAnnotation \\
-//           -L ${region} \\
-//           -O ${SM}.${int_tag}.g.vcf   
+    """
+      gatk HaplotypeCaller --java-options "-Xmx${task.cpus}g -Xms1g" \\
+          -R ${reference_uncompressed} \\
+          -I ${smbam} \\
+          --emit-ref-confidence GVCF \\
+          --genotyping-mode DISCOVERY \\
+          --max-genotype-count 3000 \\
+          --max-alternate-alleles 100 \\
+          --annotation DepthPerAlleleBySample \\
+          --annotation Coverage \\
+          --annotation GenotypeSummaries \\
+          --annotation TandemRepeat \\
+          --annotation StrandBiasBySample \\
+          --annotation ChromosomeCounts \\
+          --annotation AS_QualByDepth \\
+          --annotation AS_StrandOddsRatio \\
+          --annotation AS_MappingQualityRankSumTest \\
+          --annotation DepthPerSampleHC \\
+          --annotation-group StandardAnnotation \\
+          --annotation-group AS_StandardAnnotation \\
+          --annotation-group StandardHCAnnotation \\
+          -L ${region} \\
+          -O ${SM}.${int_tag}.g.vcf   
 
-//       gatk IndexFeatureFile \\
-//           -F ${SM}.${int_tag}.g.vcf 
+      gatk IndexFeatureFile \\
+          -F ${SM}.${int_tag}.g.vcf 
 
-//       intname=`ls *.interval_list`
-//       gvcf=`find . -name '*.g.vcf' | cut -f2 -d "/"`
+      intname=`ls *.interval_list`
+      gvcf=`find . -name '*.g.vcf' | cut -f2 -d "/"`
 
-//       echo "${SM} \${gvcf}" | awk -v OFS="\t" '\$1=\$1' > ${SM}.\$intname.sample_map.txt
-//       echo "samplemaps" > place_holder.txt
-//     """
-// }
+      echo "${SM} \${gvcf}" | awk -v OFS="\t" '\$1=\$1' > ${SM}.\$intname.sample_map.txt
+      echo "samplemaps" > place_holder.txt
+    """
+}
 
 // sample_map
 //   .groupTuple()
@@ -426,7 +425,7 @@ if (params.help) {
 
 //       gatk --java-options "-Xmx48g -Xms48g" \\
 //         GenotypeGVCFs \\
-//         -R ${reference_handle_uncompressed} \\
+//         -R ${reference_uncompressed} \\
 //         -V gendb://\$WORKSPACE \\
 //         -G StandardAnnotation \\
 //         -G AS_StandardAnnotation \\
@@ -562,7 +561,7 @@ if (params.help) {
 //   """
 //     gatk --java-options "-Xmx48g -Xms48g" \\
 //         SelectVariants \\
-//         -R ${reference_handle_uncompressed} \\
+//         -R ${reference_uncompressed} \\
 //         -V ${merge_ann_vcf} \\
 //         --select-type-to-include SNP \\
 //         -O merged_annotated_SNV.vcf
@@ -570,7 +569,7 @@ if (params.help) {
 
 //     gatk --java-options "-Xmx48g -Xms48g" \\
 //         SelectVariants \\
-//         -R ${reference_handle_uncompressed} \\
+//         -R ${reference_uncompressed} \\
 //         -V ${merge_ann_vcf} \\
 //         --select-type-to-include INDEL \\
 //         -O merged_annotated_INDEL.vcf
@@ -600,7 +599,7 @@ if (params.help) {
 
 //       gatk --java-options "-Xmx48g -Xms48g" \\
 //           VariantFiltration \\
-//           -R ${reference_handle_uncompressed} \\
+//           -R ${reference_uncompressed} \\
 //           --variant norm_indels.vcf \\
 //           --genotype-filter-expression "DP < ${params.min_depth}" \\
 //           --genotype-filter-name "depth" \\
@@ -638,7 +637,7 @@ if (params.help) {
 //     """
 //       gatk --java-options "-Xmx48g -Xms48g" \\
 //           VariantFiltration \\
-//           -R ${reference_handle_uncompressed} \\
+//           -R ${reference_uncompressed} \\
 //           --variant ${snp_vcf} \\
 //           --genotype-filter-expression "DP < ${params.min_depth}" \\
 //           --genotype-filter-name "depth" \\
@@ -752,7 +751,7 @@ if (params.help) {
 
 //     gatk --java-options "-Xmx4g -Xms4g" \\
 //          VariantFiltration \\
-//          -R ${reference_handle_uncompressed} \\
+//          -R ${reference_uncompressed} \\
 //          --variant ${isotype}_temp.vcf \\
 //          --genotype-filter-expression "FILTER != 'PASS'" \\
 //          --genotype-filter-name "dv_dp" \\
