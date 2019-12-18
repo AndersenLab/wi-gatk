@@ -246,12 +246,6 @@ process call_variants_individual {
     """
 }
 
-// individual_sites
-//   .groupTuple()
-//   .join(merged_sample_maps)
-//   .into{merge_sm_int_gvcfs;
-//        print_sm_int_gvcfs}
-
 /*
 =============================================
 ~ ~ ~ > *  Merge Sample gVCF files  * < ~ ~ ~ 
@@ -268,57 +262,14 @@ process concat_strain_gvcfs {
         tuple strain, ref_strain, path("*"), path(contigs)
 
     output:
-        tuple path("${strain}.g.vcf.gz"), path("${strain}.g.vcf.gz.csi")
+        tuple path("${strain}.g.vcf.gz"), path("${strain}.g.vcf.gz.tbi")
 
     """
         awk '{ print \$0 ".g.vcf.gz" }' ${contigs} > contig_set.tsv
         bcftools concat  -O z --file-list contig_set.tsv > ${strain}.g.vcf.gz
-        bcftools index ${strain}.g.vcf.gz
+        bcftools index --tbi ${strain}.g.vcf.gz
     """
 }
-
-// merged_sample_gvcf
-//   .toSortedList()
-//   .into{merged_sample_gvcf_to_sample_map;
-//         merged_sample_gvcf_to_db;
-//         merged_sample_gvcf_other;}
-
-
-// merged_sample_gvcf_index
-//   .toSortedList()
-//   .into{merged_sample_gvcf_index_to_sample_map;
-//         merged_sample_gvcf_index_to_db;
-//         merged_sample_gvcf_index_to_other;}
-
-
-/*
-===============================================
-~ ~ ~ > *  Combine All Samples to DB  * < ~ ~ ~ 
-===============================================
-*/
-
-//  process cohort_to_sample_map {
-
-//     memory '64 GB'
-
-//     publishDir "${params.out}/Isotype_gVCF", mode: 'copy'
-
-//     executor 'local'
-
-//     input:
-//       file(gvcfs) from merged_sample_gvcf_to_sample_map
-//       file(indices) from merged_sample_gvcf_index_to_sample_map
-
-//     output:
-//       file("cohort.sample_map") into cohort_map
-
-
-//     """
-//       ls *_merged-intervals.g.vcf > cohort.sample_map_tmp
-//       awk -F"_" 'BEGIN{OFS="\t"}; \$1=\$1' OFS="\t" cohort.sample_map_tmp | \\
-//       awk '{print \$1, \$1"_"\$2}' OFS="\t" > cohort.sample_map
-//     """
-// }
 
  process import_genomics_db {
 
