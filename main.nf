@@ -194,8 +194,9 @@ workflow {
                            .toList()
                            .map { [it] }
                            .combine(contigs)
-                           .combine(sample_map)
-                           .view() | import_genomics_db
+                           .combine(sample_map) | \
+                        import_genomics_db | \
+                        genotype_cohort_gvcf_db
 
 
 }
@@ -272,22 +273,23 @@ process concat_strain_gvcfs {
     tag { "${contig}" }
     label 'lg'
 
+    conda "gatk4=4.1.4.0"
+
     input:
         tuple path(vcfs), contig, path(sample_map)
 
     output:
-        tuple val(contig), file("${contig}_database.tar")
+        tuple val(contig), file("${contig}.db")
 
     """
         gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
             GenomicsDBImport \\
-            --genomicsdb-workspace-path ${contig}_database \\
+            --genomicsdb-workspace-path ${contig}.db \\
             --batch-size 16 \\
             -L ${contig} \\
             --sample-name-map ${sample_map} \\
             --reader-threads ${task.cpus}
 
-      tar -cf ${contig}_database.tar ${contig}_database
     """
 }
 
@@ -295,31 +297,34 @@ process concat_strain_gvcfs {
 ~ ~ ~ > *  Genotype gVCFs  * < ~ ~ ~ 
 ==================================*/
 
- process genotype_cohort_gvcf_db {
+process genotype_cohort_gvcf_db {
 
     tag { "${chr}" }
     label 'lg'
 
+    conda "gatk4=4.1.4.0"
+    //conda "bcftools=1.9 gatk4=4.1.4.0"
+
     input:
-        tuple val(chr), file(chr_db) from chromosomal_db
+        tuple val(contig), file("${contig}.db")
 
     output:
-        tuple val(chr), file("${chr}_cohort.vcf"), file("${chr}_cohort.vcf.idx") into cohort_vcf
+        tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.tbi")
 
     """
-      tar -xf ${chr_db}
-      WORKSPACE=\$( basename ${chr_db} .tar)
+        gatk --java-options "-Xmx48g -Xms48g" \\
+            GenotypeGVCFs \\
+            -R ${reference_uncompressed} \\
+            -V gendb://${contig}.db \\
+            -G StandardAnnotation \\
+            -G AS_StandardAnnotation \\
+            -G StandardHCAnnotation \\
+            -L ${contig} \\
+            --use-new-qual-calculator \\
+           -O ${contig}_cohort.vcf
 
-      gatk --java-options "-Xmx48g -Xms48g" \\
-        GenotypeGVCFs \\
-        -R ${reference_uncompressed} \\
-        -V gendb://\$WORKSPACE \\
-        -G StandardAnnotation \\
-        -G AS_StandardAnnotation \\
-        -G StandardHCAnnotation \\
-        -L ${chr} \\
-        --use-new-qual-calculator \\
-        -O ${chr}_cohort.vcf
+        bcftools view -O z ${contig}_cohort.vcf > ${contig}_cohort.vcf.gz
+        bcftools index --tbi ${contig}_cohort.vcf.gz
     """
 }
 
@@ -328,44 +333,42 @@ process concat_strain_gvcfs {
 =====================================================*/
 
 
-// process annotate_vcf {
+process annotate_vcf {
 
-//     memory '64 GB'
+    label 'lg' 
+    
+    tag { contig }
 
-//     cpus 12
+    input:
+        tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.tbi")
+        file 'snpeff.config' from file("${baseDir}/snpeff_data/snpEff.config")
+        file 'snpeff_data' from file("${baseDir}/snpeff_data")
 
-//     tag { chrom }
-
-//     input:
-//         set val(chrom), file(vcf), file(vcfindex) from cohort_vcf
-//         file 'snpeff.config' from file("${baseDir}/snpeff_data/snpEff.config")
-//         file 'snpeff_data' from file("${baseDir}/snpeff_data")
-
-//     output:
-//         set file("${chrom}.annotated.vcf.gz"), file("${chrom}.annotated.vcf.gz.tbi") into annotated_vcf
-//         file("snpeff_out.csv") into snpeff_multiqc
+    output:
+        set file("${chrom}.annotated.vcf.gz"), file("${chrom}.annotated.vcf.gz.tbi") into annotated_vcf
+        file("snpeff_out.csv") into snpeff_multiqc
 
 
-//     """
-//       bcftools view -Oz -o ${vcf}.gz ${vcf}
-//       tabix -p vcf ${vcf}.gz
+    """
+      bcftools view -Oz -o ${vcf}.gz ${vcf}
+      tabix -p vcf ${vcf}.gz
 
-//       # bcftools csq
-//       bcftools view --threads=${task.cpus-1} --regions ${chrom} ${vcf}.gz | \\
-//       snpEff eff -csvStats snpeff_out.csv \\
-//                  -no-downstream \\
-//                  -no-intergenic \\
-//                  -no-upstream \\
-//                  -nodownload \\
-//       -dataDir . \\
-//       -config snpeff.config \\
-//       ${params.annotation_reference} | \\
-//       bcftools view --threads=${task.cpus-1} -O z > ${chrom}.annotated.vcf.gz
+      # bcftools csq
+      bcftools view --threads=${task.cpus-1} --regions ${chrom} ${vcf}.gz | \\
+      snpEff eff -csvStats snpeff_out.csv \\
+                 -no-downstream \\
+                 -no-intergenic \\
+                 -no-upstream \\
+                 -nodownload \\
+      -dataDir . \\
+      -config snpeff.config \\
+      ${params.annotation_reference} | \\
+      bcftools view --threads=${task.cpus-1} -O z > ${chrom}.annotated.vcf.gz
       
-//       tabix -p vcf ${chrom}.annotated.vcf.gz
-//     """
+      tabix -p vcf ${chrom}.annotated.vcf.gz
+    """
 
-// }
+}
 
 /*===============================================
 ~ ~ ~ > *   Concatenate Annotated VCFs  * < ~ ~ ~
