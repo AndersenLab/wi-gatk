@@ -119,11 +119,9 @@ strains = params.strains ? params.strains.split(",") : false
 
 // cegff = Channel.fromPath(params.gff)
 
-/*
-===========================================
+/*=========================================
 ~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
-===========================================
-*/
+=========================================*/
 
 process split_genome {
 
@@ -202,11 +200,9 @@ workflow {
 
 }
 
-/*
-=============================================
+/*===========================================
 ~ ~ ~ > * Run GATK4 HaplotypeCaller * < ~ ~ ~ 
-=============================================
-*/
+===========================================*/
 
 process call_variants_individual {
 
@@ -280,7 +276,7 @@ process concat_strain_gvcfs {
         tuple path(vcfs), contig, path(sample_map)
 
     output:
-      set val(chr), file("${contig}_database.tar")
+        tuple val(contig), file("${contig}_database.tar")
 
     """
         gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
@@ -295,52 +291,41 @@ process concat_strain_gvcfs {
     """
 }
 
-/*
-====================================
+/*==================================
 ~ ~ ~ > *  Genotype gVCFs  * < ~ ~ ~ 
-====================================
-*/
+==================================*/
 
-//  process genotype_cohort_gvcf_db {
+ process genotype_cohort_gvcf_db {
 
-//     memory '64 GB'
+    tag { "${chr}" }
+    label 'lg'
 
-//     tag { "${chr}" }
+    input:
+        tuple val(chr), file(chr_db) from chromosomal_db
 
-//     cpus 12
+    output:
+        tuple val(chr), file("${chr}_cohort.vcf"), file("${chr}_cohort.vcf.idx") into cohort_vcf
 
-//     input:
-//       set val(chr), file(chr_db) from chromosomal_db
+    """
+      tar -xf ${chr_db}
+      WORKSPACE=\$( basename ${chr_db} .tar)
 
-//     output:
-//       set val(chr), file("${chr}_cohort.vcf"), file("${chr}_cohort.vcf.idx") into cohort_vcf
+      gatk --java-options "-Xmx48g -Xms48g" \\
+        GenotypeGVCFs \\
+        -R ${reference_uncompressed} \\
+        -V gendb://\$WORKSPACE \\
+        -G StandardAnnotation \\
+        -G AS_StandardAnnotation \\
+        -G StandardHCAnnotation \\
+        -L ${chr} \\
+        --use-new-qual-calculator \\
+        -O ${chr}_cohort.vcf
+    """
+}
 
-//     """
-//       tar -xf ${chr_db}
-//       WORKSPACE=\$( basename ${chr_db} .tar)
-
-//       gatk --java-options "-Xmx48g -Xms48g" \\
-//         GenotypeGVCFs \\
-//         -R ${reference_uncompressed} \\
-//         -V gendb://\$WORKSPACE \\
-//         -G StandardAnnotation \\
-//         -G AS_StandardAnnotation \\
-//         -G StandardHCAnnotation \\
-//         -L ${chr} \\
-//         --use-new-qual-calculator \\
-//         -O ${chr}_cohort.vcf
-//     """
-// }
-
-// /*
-// =======================================================
-// ~ > *                                             * < ~
-// ~ ~ > *                                         * < ~ ~
-// ~ ~ ~ > *  SnpEff Annotate Cohort Chrom VCFs  * < ~ ~ ~ 
-// ~ ~ > *                                         * < ~ ~ 
-// ~ > *                                             * < ~
-// =======================================================
-// */
+/*=====================================================
+~ ~ ~ > *  SnpEff Annotate Cohort Chrom VCFs  * < ~ ~ ~  
+=====================================================*/
 
 
 // process annotate_vcf {
@@ -382,15 +367,9 @@ process concat_strain_gvcfs {
 
 // }
 
-// /*
-// =================================================
-// ~ > *                                       * < ~
-// ~ ~ > *                                   * < ~ ~
-// ~ ~ ~ > *   Concatenate Annotated VCFs  * < ~ ~ ~
-// ~ ~ > *                                   * < ~ ~
-// ~ > *                                       * < ~
-// =================================================
-// */
+/*===============================================
+~ ~ ~ > *   Concatenate Annotated VCFs  * < ~ ~ ~
+===============================================*/
 
 // contig_raw_vcf = CONTIG_LIST*.concat(".annotated.vcf.gz")
 
@@ -424,21 +403,13 @@ process concat_strain_gvcfs {
 //         ann_vcf_to_cnn_apply;}
 
 
-// /*
-// ================================================
-// ~ > *                                      * < ~
-// ~ ~ > *                                  * < ~ ~
-// ~ ~ ~ > *   Apply Soft Filters on VCF  * < ~ ~ ~
-// ~ ~ > *                                  * < ~ ~
-// ~ > *                                      * < ~
-// ================================================
-// */
+/*==============================================
+~ ~ ~ > *   Apply Soft Filters on VCF  * < ~ ~ ~
+==============================================*/
 
-// /*
-// ============================================
-// ~ ~ ~ > *   Split Indels and SNVs  * < ~ ~ ~
-// ============================================
-// */
+/*==========================================
+~ ~ ~ > *   Split Indels and SNVs  * < ~ ~ ~
+==========================================*/
 
 // process split_snv_indel {
 
@@ -473,11 +444,9 @@ process concat_strain_gvcfs {
 
 // }
 
-// /*
-// ================================================
-// ~ ~ ~ > *   Apply Indels Soft Filters  * < ~ ~ ~
-// ================================================
-// */
+/*==============================================
+~ ~ ~ > *   Apply Indels Soft Filters  * < ~ ~ ~
+==============================================*/
 
 // process apply_soft_filters_indel {
 
