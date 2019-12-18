@@ -187,8 +187,18 @@ workflow {
 
     call_variants_individual.out.groupTuple()
                                 .map { strain, ref_strain, vcf -> [strain, ref_strain[0], vcf]}
-                                .combine(get_contigs.out)
-                                .view() | concat_strain_gvcfs
+                                .combine(get_contigs.out) | \
+                                concat_strain_gvcfs
+    
+    // gatk genomics db
+    sample_map = sample_sheet.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
+    concat_strain_gvcfs.out.flatten()
+                           .toList()
+                           .map { [it] }
+                           .combine(contigs)
+                           .combine(sample_map)
+                           .view() | import_genomics_db
+
 
 }
 
@@ -252,16 +262,18 @@ process concat_strain_gvcfs {
 
     label 'sm'
     tag { "${strain}" }
+    //conda 'bcftools=1.9'
 
     input:
-        tuple strain, ref, path("*"), path(contigs)
+        tuple strain, ref_strain, path("*"), path(contigs)
 
     output:
-        path("${strain}.g.vcf.gz")
+        tuple path("${strain}.g.vcf.gz"), path("${strain}.g.vcf.gz.csi")
 
     """
         awk '{ print \$0 ".g.vcf.gz" }' ${contigs} > contig_set.tsv
-        bcftools concat  -O z --file-list contig_set.tsv > ${strain}.gvcf.gz
+        bcftools concat  -O z --file-list contig_set.tsv > ${strain}.g.vcf.gz
+        bcftools index ${strain}.g.vcf.gz
     """
 }
 
@@ -308,33 +320,27 @@ process concat_strain_gvcfs {
 //     """
 // }
 
- process cohort_to_db {
+ process import_genomics_db {
 
-    memory '64 GB'
-
-    tag { "${chr}" }
-
-    cpus 12
+    tag { "${contig}" }
+    label 'lg'
 
     input:
-      file(gvcfs) from merged_sample_gvcf_to_db
-      file(indices) from merged_sample_gvcf_index_to_db
-      file(samplemap) from cohort_map
-      each chr from contigs
+        tuple path(vcfs), contig, path(sample_map)
 
     output:
-      set val(chr), file("${chr}_database.tar") into chromosomal_db
+      set val(chr), file("${contig}_database.tar")
 
     """
-      gatk --java-options "-Xmx32g -Xms32g" \\
-       GenomicsDBImport \\
-       --genomicsdb-workspace-path ${chr}_database \\
-       --batch-size 16 \\
-       -L ${chr} \\
-       --sample-name-map ${samplemap} \\
-       --reader-threads ${task.cpus}
+        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+            GenomicsDBImport \\
+            --genomicsdb-workspace-path ${contig}_database \\
+            --batch-size 16 \\
+            -L ${contig} \\
+            --sample-name-map ${sample_map} \\
+            --reader-threads ${task.cpus}
 
-      tar -cf ${chr}_database.tar ${chr}_database
+      tar -cf ${contig}_database.tar ${contig}_database
     """
 }
 
