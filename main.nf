@@ -35,12 +35,12 @@ if (params.debug.toString() == "true") {
     params.sample_sheet = "sample_sheet.tsv"
 }
 
+// defaults
 params.bamdir                 = null
 params.out_base               = null
-params.gff                    = params.gff
-params.strains                = params.strains
-params.cpu                    = params.cores
-params.annotation_reference   = params.annotation_reference
+params.gff                    = null
+params.strains                = false
+params.annotation_reference   = null
 
 params.out                    = "${date}-${params.out_base}"
 
@@ -112,50 +112,14 @@ if (workflow.profile == "") {
 // contigs = Channel.from(CONTIG_LIST)
 
 // /*
-// ~ ~ ~ > * Reference Strain File 
-// */
-
-// File strain_file = new File(params.strains);
-
-// ce_strains = Channel.from(strain_file.collect { it.tokenize( ' ' ) })
-//              .map { SM -> SM }
-
-
-// /*
 // ~ ~ ~ > * gff file for snpeff
 // */
 
 // cegff = Channel.fromPath(params.gff)
 
-// /*
-// ~ ~ ~ > * BAM FILE 
-// */
-
-// bamdir = params.bamdir
-
-// bams = Channel.fromPath( bamdir+'*.bam' )
-//               .ifEmpty { error "Cannot find any bai file in: ${bamdir}" }
-//               .map {  path -> [ path.name.replace(".bam",""), path ] }
-
-// bais = Channel.fromPath( bamdir +'*.bam.bai' )
-//               .ifEmpty { error "Cannot find any bai file in: ${bamdir}" }
-//               .map { path -> [ path.name.replace(".bam.bai",""), path ] }
-
-
-// bams
-//   .join(bais)
-//   .join(ce_strains)
-//   .into{bam_first_call;
-//         bam_recall}
-
-
 /*
 ===========================================
-~ > *                                 * < ~
-~ ~ > *                             * < ~ ~
 ~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
-~ ~ > *                             * < ~ ~ 
-~ > *                                 * < ~
 ===========================================
 */
 
@@ -188,7 +152,7 @@ process get_contigs {
     label 'sm'
 
     input:
-        tuple row, strain, path(bam), path(bai)
+        tuple strain, ref_strain, path(bam), path(bai)
 
     output:
         path("contigs.txt")
@@ -201,83 +165,69 @@ process get_contigs {
 
 // Read sample sheet
 sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-                      .ifEmpty { exit 1, "sample sheet not found" }
-                      .splitCsv(header:true, sep: "\t")
-                      .map { row -> [row, 
-                                     row.strain, 
+                       .ifEmpty { exit 1, "sample sheet not found" }
+                       .splitCsv(header:true, sep: "\t")
+                      .map { row -> [row.strain,
+                                     row.reference_strain == "TRUE",
                                      file("${params.bamdir}/${row.strain}.bam", checkExists: true),
-                                     file("${params.bamdir}/${row.strain}.bam.bai", checkExists: true)] }.view()
+                                     file("${params.bamdir}/${row.strain}.bam.bai", checkExists: true)] }
+                      .distinct()
 
 workflow {
 
     // Get contigs from first bam
     sample_sheet.first() | get_contigs
-    contigs = get_contigs.out.splitText()
+    contigs = get_contigs.out.splitText { it.strip() }
 
-    //split_genome()
+    // Call individual variants
+    sample_sheet.combine(contigs) | call_variants_individual
+
+    call_variants_individual.out.groupTuple().combine(contigs).view()
 }
 
-// /*
-// =============================================
-// ~ ~ ~ > * Run GATK4 HaplotypeCaller * < ~ ~ ~ 
-// =============================================
-// */
+/*
+=============================================
+~ ~ ~ > * Run GATK4 HaplotypeCaller * < ~ ~ ~ 
+=============================================
+*/
 
 process call_variants_individual {
 
     label 'lg'
 
-    tag { "${SM} - ${region}" }
+    tag { "${strain}:${region}" }
 
     input:
-      set val(SM), file(smbam), file(smbambai), file(region) from first_call_bams
+        tuple strain, ref, path(bam), path(bai), val(region)
 
     output:
-      set val(SM), file("${SM}.${int_tag}.g.vcf"), file("${SM}.${int_tag}.g.vcf.idx") into individual_sites
-      set val(SM), file(region), file("*sample_map.txt") into sample_map
-
-    script:
-      int_tag = region.baseName
+        tuple strain, path("${strain}.${region}.g.vcf.gz")
 
     """
-      gatk HaplotypeCaller --java-options "-Xmx${task.cpus}g -Xms1g" \\
-          -R ${reference_uncompressed} \\
-          -I ${smbam} \\
-          --emit-ref-confidence GVCF \\
-          --genotyping-mode DISCOVERY \\
-          --max-genotype-count 3000 \\
-          --max-alternate-alleles 100 \\
-          --annotation DepthPerAlleleBySample \\
-          --annotation Coverage \\
-          --annotation GenotypeSummaries \\
-          --annotation TandemRepeat \\
-          --annotation StrandBiasBySample \\
-          --annotation ChromosomeCounts \\
-          --annotation AS_QualByDepth \\
-          --annotation AS_StrandOddsRatio \\
-          --annotation AS_MappingQualityRankSumTest \\
-          --annotation DepthPerSampleHC \\
-          --annotation-group StandardAnnotation \\
-          --annotation-group AS_StandardAnnotation \\
-          --annotation-group StandardHCAnnotation \\
-          -L ${region} \\
-          -O ${SM}.${int_tag}.g.vcf   
-
-      gatk IndexFeatureFile \\
-          -F ${SM}.${int_tag}.g.vcf 
-
-      intname=`ls *.interval_list`
-      gvcf=`find . -name '*.g.vcf' | cut -f2 -d "/"`
-
-      echo "${SM} \${gvcf}" | awk -v OFS="\t" '\$1=\$1' > ${SM}.\$intname.sample_map.txt
-      echo "samplemaps" > place_holder.txt
+        gatk HaplotypeCaller --java-options "-Xmx${task.cpus}g -Xms1g" \\
+            --emit-ref-confidence GVCF \\
+            --max-genotype-count 3000 \\
+            --max-alternate-alleles 100 \\
+            --annotation DepthPerAlleleBySample \\
+            --annotation Coverage \\
+            --annotation GenotypeSummaries \\
+            --annotation TandemRepeat \\
+            --annotation StrandBiasBySample \\
+            --annotation ChromosomeCounts \\
+            --annotation AS_QualByDepth \\
+            --annotation AS_StrandOddsRatio \\
+            --annotation AS_MappingQualityRankSumTest \\
+            --annotation DepthPerSampleHC \\
+            --annotation-group StandardAnnotation \\
+            --annotation-group AS_StandardAnnotation \\
+            --annotation-group StandardHCAnnotation \\
+            -R ${reference_uncompressed} \\
+            -I ${bam} \\
+            -L ${region} \\
+            -O ${strain}.${region}.g.vcf   
+        bcftools view -O z ${strain}.${region}.g.vcf > ${strain}.${region}.g.vcf.gz
     """
 }
-
-// sample_map
-//   .groupTuple()
-//   .into{merged_sample_maps;
-//        print_merged_sample_maps}
 
 // individual_sites
 //   .groupTuple()
@@ -285,38 +235,28 @@ process call_variants_individual {
 //   .into{merge_sm_int_gvcfs;
 //        print_sm_int_gvcfs}
 
-// /*
-// =============================================
-// ~ > *                                   * < ~
-// ~ ~ > *                               * < ~ ~
-// ~ ~ ~ > *  Merge Sample gVCF files  * < ~ ~ ~ 
-// ~ ~ > *                               * < ~ ~ 
-// ~ > *                                   * < ~
-// =============================================
-// */
+/*
+=============================================
+~ ~ ~ > *  Merge Sample gVCF files  * < ~ ~ ~ 
+=============================================
+*/
 
-//  process merge_sm_gvcfs {
+process concat_strain_gvcfs {
 
-//     memory '64 GB'
+    label 'sm'
+    tag { "${strain}" }
 
-//     tag { "${SM}" }
+    input:
+        tuple strain, path("${strain}.${region}.g.vcf"), file("${strain}.${region}.g.vcf.idx")
 
-//     input:
-//       set val(SM), file(gvcf), file(index), file(intervals), file(sample_map) from merge_sm_int_gvcfs
+    output:
+        file("${SM}_merged-intervals.g.vcf") into merged_sample_gvcf
+        file("${SM}_merged-intervals.g.vcf.idx") into merged_sample_gvcf_index
 
-//     output:
-//       file("${SM}_merged-intervals.g.vcf") into merged_sample_gvcf
-//       file("${SM}_merged-intervals.g.vcf.idx") into merged_sample_gvcf_index
-
-//     """
-//       cat *sample_map.txt > ${SM}_merged_sample-map.txt
-//       cut -f2 ${SM}_merged_sample-map.txt > ${SM}_intervals.list
-
-//       gatk MergeVcfs --java-options "-Xmx16g -Xms16g" \\
-//         --INPUT ${SM}_intervals.list \\
-//         --OUTPUT ${SM}_merged-intervals.g.vcf
-//     """
-// }
+    """
+        bcftools concat -O z ${} > out.vcf.gz
+    """
+}
 
 // merged_sample_gvcf
 //   .toSortedList()
@@ -334,11 +274,7 @@ process call_variants_individual {
 
 // /*
 // ===============================================
-// ~ > *                                     * < ~
-// ~ ~ > *                                 * < ~ ~
 // ~ ~ ~ > *  Combine All Samples to DB  * < ~ ~ ~ 
-// ~ ~ > *                                 * < ~ ~ 
-// ~ > *                                     * < ~
 // ===============================================
 // */
 
@@ -395,15 +331,15 @@ process call_variants_individual {
 //     """
 // }
 
-// /*
-// ====================================
-// ~ > *                          * < ~
-// ~ ~ > *                      * < ~ ~
-// ~ ~ ~ > *  Genotype gVCFs  * < ~ ~ ~ 
-// ~ ~ > *                      * < ~ ~ 
-// ~ > *                          * < ~
-// ====================================
-// */
+/*
+====================================
+~ > *                          * < ~
+~ ~ > *                      * < ~ ~
+~ ~ ~ > *  Genotype gVCFs  * < ~ ~ ~ 
+~ ~ > *                      * < ~ ~ 
+~ > *                          * < ~
+====================================
+*/
 
 //  process genotype_cohort_gvcf_db {
 
