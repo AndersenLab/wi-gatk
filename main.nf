@@ -107,6 +107,8 @@ if (workflow.profile == "") {
     exit 1
 }
 
+strains = params.strains ? params.strains.split(",") : false
+
 // // Define contigs here!
 // CONTIG_LIST = ["I", "II", "III", "IV", "V", "X", "MtDNA"]
 // contigs = Channel.from(CONTIG_LIST)
@@ -172,6 +174,7 @@ sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
                                      file("${params.bamdir}/${row.strain}.bam", checkExists: true),
                                      file("${params.bamdir}/${row.strain}.bam.bai", checkExists: true)] }
                       .distinct()
+                      .filter { params.strains ? it[0] in strains : true }
 
 workflow {
 
@@ -182,7 +185,11 @@ workflow {
     // Call individual variants
     sample_sheet.combine(contigs) | call_variants_individual
 
-    call_variants_individual.out.groupTuple().combine(contigs).view()
+    call_variants_individual.out.groupTuple()
+                                .map { strain, ref_strain, vcf -> [strain, ref_strain[0], vcf]}
+                                .combine(get_contigs.out)
+                                .view() | concat_strain_gvcfs
+
 }
 
 /*
@@ -198,10 +205,10 @@ process call_variants_individual {
     tag { "${strain}:${region}" }
 
     input:
-        tuple strain, ref, path(bam), path(bai), val(region)
+        tuple strain, ref_strain, path(bam), path(bai), val(region)
 
     output:
-        tuple strain, path("${strain}.${region}.g.vcf.gz")
+        tuple strain, ref_strain, path("${region}.g.vcf.gz")
 
     """
         gatk HaplotypeCaller --java-options "-Xmx${task.cpus}g -Xms1g" \\
@@ -224,8 +231,8 @@ process call_variants_individual {
             -R ${reference_uncompressed} \\
             -I ${bam} \\
             -L ${region} \\
-            -O ${strain}.${region}.g.vcf   
-        bcftools view -O z ${strain}.${region}.g.vcf > ${strain}.${region}.g.vcf.gz
+            -O ${region}.g.vcf   
+        bcftools view -O z ${region}.g.vcf > ${region}.g.vcf.gz
     """
 }
 
@@ -247,14 +254,14 @@ process concat_strain_gvcfs {
     tag { "${strain}" }
 
     input:
-        tuple strain, path("${strain}.${region}.g.vcf"), file("${strain}.${region}.g.vcf.idx")
+        tuple strain, ref, path("*"), path(contigs)
 
     output:
-        file("${SM}_merged-intervals.g.vcf") into merged_sample_gvcf
-        file("${SM}_merged-intervals.g.vcf.idx") into merged_sample_gvcf_index
+        path("${strain}.g.vcf.gz")
 
     """
-        bcftools concat -O z ${} > out.vcf.gz
+        awk '{ print \$0 ".g.vcf.gz" }' ${contigs} > contig_set.tsv
+        bcftools concat  -O z --file-list contig_set.tsv > ${strain}.gvcf.gz
     """
 }
 
@@ -272,11 +279,11 @@ process concat_strain_gvcfs {
 //         merged_sample_gvcf_index_to_other;}
 
 
-// /*
-// ===============================================
-// ~ ~ ~ > *  Combine All Samples to DB  * < ~ ~ ~ 
-// ===============================================
-// */
+/*
+===============================================
+~ ~ ~ > *  Combine All Samples to DB  * < ~ ~ ~ 
+===============================================
+*/
 
 //  process cohort_to_sample_map {
 
@@ -301,43 +308,39 @@ process concat_strain_gvcfs {
 //     """
 // }
 
-//  process cohort_to_db {
+ process cohort_to_db {
 
-//     memory '64 GB'
+    memory '64 GB'
 
-//     tag { "${chr}" }
+    tag { "${chr}" }
 
-//     cpus 12
+    cpus 12
 
-//     input:
-//       file(gvcfs) from merged_sample_gvcf_to_db
-//       file(indices) from merged_sample_gvcf_index_to_db
-//       file(samplemap) from cohort_map
-//       each chr from contigs
+    input:
+      file(gvcfs) from merged_sample_gvcf_to_db
+      file(indices) from merged_sample_gvcf_index_to_db
+      file(samplemap) from cohort_map
+      each chr from contigs
 
-//     output:
-//       set val(chr), file("${chr}_database.tar") into chromosomal_db
+    output:
+      set val(chr), file("${chr}_database.tar") into chromosomal_db
 
-//     """
-//       gatk --java-options "-Xmx32g -Xms32g" \\
-//        GenomicsDBImport \\
-//        --genomicsdb-workspace-path ${chr}_database \\
-//        --batch-size 16 \\
-//        -L ${chr} \\
-//        --sample-name-map ${samplemap} \\
-//        --reader-threads ${task.cpus}
+    """
+      gatk --java-options "-Xmx32g -Xms32g" \\
+       GenomicsDBImport \\
+       --genomicsdb-workspace-path ${chr}_database \\
+       --batch-size 16 \\
+       -L ${chr} \\
+       --sample-name-map ${samplemap} \\
+       --reader-threads ${task.cpus}
 
-//       tar -cf ${chr}_database.tar ${chr}_database
-//     """
-// }
+      tar -cf ${chr}_database.tar ${chr}_database
+    """
+}
 
 /*
 ====================================
-~ > *                          * < ~
-~ ~ > *                      * < ~ ~
 ~ ~ ~ > *  Genotype gVCFs  * < ~ ~ ~ 
-~ ~ > *                      * < ~ ~ 
-~ > *                          * < ~
 ====================================
 */
 
