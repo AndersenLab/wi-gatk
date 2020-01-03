@@ -7,11 +7,11 @@
 */
 nextflow.preview.dsl=2
 
-// For now, this pipeline requires NXF_VER 19.09.0
+// For now, this pipeline requires NXF_VER 19.12.0
 // Prefix this version when running
 // e.g.
-// NXF_VER=19.09.0-edge nextflow run ...
-assert System.getenv("NXF_VER") == "19.09.0-edge"
+// NXF_VER=19.12.0-edge nextflow run ...
+assert System.getenv("NXF_VER") == "19.12.0-edge"
 
 /*
     Params
@@ -21,6 +21,7 @@ date = new Date().format( 'yyyyMMdd' )
 params.debug = false
 params.email = ""
 params.reference = "${workflow.projectDir}/WS245/WS245.fa.gz"
+params.annotation_reference = "WS263"
 reference_uncompressed = file(params.reference.replace(".gz", ""), checkExists: true)
 parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk")
 
@@ -196,8 +197,11 @@ workflow {
                            .combine(contigs)
                            .combine(sample_map) | \
                         import_genomics_db | \
-                        genotype_cohort_gvcf_db
+                        genotype_cohort_gvcf_db | \
+                        annotate_vcf
 
+    vcfs = annotate_vcf.out.anno_vcf.collect().map { [it] }.combine(get_contigs.out)
+    vcfs | concatenate_vcf
 
 }
 
@@ -210,6 +214,8 @@ process call_variants_individual {
     label 'lg'
 
     tag { "${strain}:${region}" }
+
+    conda "gatk4=4.1.4.0"
 
     input:
         tuple strain, ref_strain, path(bam), path(bai), val(region)
@@ -253,7 +259,7 @@ process concat_strain_gvcfs {
 
     label 'sm'
     tag { "${strain}" }
-    //conda 'bcftools=1.9'
+    conda 'bcftools=1.9'
 
     input:
         tuple strain, ref_strain, path("*"), path(contigs)
@@ -289,7 +295,6 @@ process concat_strain_gvcfs {
             -L ${contig} \\
             --sample-name-map ${sample_map} \\
             --reader-threads ${task.cpus}
-
     """
 }
 
@@ -299,17 +304,16 @@ process concat_strain_gvcfs {
 
 process genotype_cohort_gvcf_db {
 
-    tag { "${chr}" }
+    tag { "${contig}" }
     label 'lg'
 
-    conda "gatk4=4.1.4.0"
-    //conda "bcftools=1.9 gatk4=4.1.4.0"
+    conda "bcftools=1.9 gatk4=4.1.4.0"
 
     input:
         tuple val(contig), file("${contig}.db")
 
     output:
-        tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.tbi")
+        tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.gz.tbi")
 
     """
         gatk --java-options "-Xmx48g -Xms48g" \\
@@ -339,33 +343,28 @@ process annotate_vcf {
     
     tag { contig }
 
+    conda "bcftools=1.9 snpeff=4.3.1t"
+
     input:
-        tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.tbi")
-        file 'snpeff.config' from file("${baseDir}/snpeff_data/snpEff.config")
-        file 'snpeff_data' from file("${baseDir}/snpeff_data")
+        tuple val(contig), file("${contig}.vcf.gz"), file("${contig}.vcf.gz.tbi")
 
     output:
-        set file("${chrom}.annotated.vcf.gz"), file("${chrom}.annotated.vcf.gz.tbi") into annotated_vcf
-        file("snpeff_out.csv") into snpeff_multiqc
+        tuple path("${contig}.annotated.vcf.gz"), path("${contig}.annotated.vcf.gz.tbi"), emit: 'anno_vcf'
+        path "snpeff_out.csv", emit: 'snpeff_out'
 
 
     """
-      bcftools view -Oz -o ${vcf}.gz ${vcf}
-      tabix -p vcf ${vcf}.gz
-
-      # bcftools csq
-      bcftools view --threads=${task.cpus-1} --regions ${chrom} ${vcf}.gz | \\
+      bcftools view --threads=${task.cpus-1} --regions ${contig} ${contig}.vcf.gz | \\
       snpEff eff -csvStats snpeff_out.csv \\
                  -no-downstream \\
                  -no-intergenic \\
                  -no-upstream \\
                  -nodownload \\
-      -dataDir . \\
-      -config snpeff.config \\
+      -dataDir ${workflow.projectDir}/snpeff_data \\
+      -config ${workflow.projectDir}/snpeff_data/snpEff.config \\
       ${params.annotation_reference} | \\
-      bcftools view --threads=${task.cpus-1} -O z > ${chrom}.annotated.vcf.gz
-      
-      tabix -p vcf ${chrom}.annotated.vcf.gz
+      bcftools view --threads=${task.cpus-1} -O z > ${contig}.annotated.vcf.gz
+      bcftools index --tbi ${contig}.annotated.vcf.gz
     """
 
 }
@@ -374,28 +373,24 @@ process annotate_vcf {
 ~ ~ ~ > *   Concatenate Annotated VCFs  * < ~ ~ ~
 ===============================================*/
 
-// contig_raw_vcf = CONTIG_LIST*.concat(".annotated.vcf.gz")
+process concatenate_vcf {
 
-// process concatenate_annotated_vcf {
+    label 'lg'
 
-//     memory '64 GB'
+    input:
+        tuple path("*"), path("contigs.txt")
 
-//     cpus 12
+    output:
+        tuple file("WI.annotated.vcf.gz"), file("WI.annotated.vcf.gz.tbi"), emit: vcf
+        path "WI.annotated.stats.txt", emit: 'soft_stats'
 
-//     input:
-//         file(merge_vcf) from annotated_vcf.collect()
-
-//     output:
-//         set file("WI.annotated.vcf.gz"), file("WI.annotated.vcf.gz.tbi") into annotated_concatenated_vcf
-//         set val("soft"), file("WI.annotated.vcf.gz"), file("WI.annotated.vcf.gz.tbi") into annotated_sample_summary
-//         file("WI.annotated.stats.txt") into annotated_stats
-
-//     """
-//       bcftools concat --threads ${task.cpus-1} -O z ${contig_raw_vcf.join(" ")} > WI.annotated.vcf.gz
-//       tabix -p vcf WI.annotated.vcf.gz
-//       bcftools stats --verbose WI.annotated.vcf.gz > WI.annotated.stats.txt
-//     """
-// }
+    """
+        awk '{ print \$0 ".annotated.vcf.gz" }' contigs.txt > contig_set.tsv
+        bcftools concat  -O z --file-list contig_set.tsv > WI.annotated.vcf.gz
+        bcftools index --tbi all.vcf.gz
+        bcftools stats --verbose WI.annotated.vcf.gz > WI.annotated.stats.txt
+    """
+}
 
 // annotated_concatenated_vcf
 //   .into{ann_vcf_to_soft_filter;
