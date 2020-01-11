@@ -37,11 +37,21 @@ if (params.debug.toString() == "true") {
 }
 
 // defaults
+params.help                   = false
 params.bamdir                 = null
 params.out_base               = null
 params.gff                    = null
 params.strains                = false
 params.annotation_reference   = null
+
+// Variant Filtering
+params.min_depth = 1
+params.qual = 20
+params.readbias = 1
+params.fisherstrand = 1
+params.quality_by_depth = 1
+params.strand_odds_ratio = 1
+
 
 params.out                    = "${date}-${params.out_base}"
 
@@ -59,7 +69,7 @@ out += """
                           USAGE                                     
     ----------------------------------------------------------------
     
-    nextflow ID_diverged-regions.nf --out_base Analysis
+    nextflow main.nf --out_base Analysis
     
     Mandatory arguments:
     --out_base             String                Name of folder to output results
@@ -70,18 +80,12 @@ out += """
     Optional arguments:
     Information describing the stucture of the input files can be located in input_files/README.txt
     
-    --cores                INTEGER              Number of cpu to use (default=2)
     --annotation_reference STRING               Wormbase build for SnpEff annotations
     --email                STRING               email address for job notifications
     
     Flags:
     --help                                      Display this message
     
-    --------------------------------------------------------
-    
-     Required software packages to be in users path
-    BCFtools               v1.9
-    GATK4                  v4.1
     --------------------------------------------------------
 
     parameters              description                    Set/Default
@@ -202,6 +206,7 @@ workflow {
 
     vcfs = annotate_vcf.out.anno_vcf.collect().map { [it] }.combine(get_contigs.out)
     vcfs | concatenate_vcf
+    concatenate_vcf.out.vcf | soft_filter
 
 }
 
@@ -316,7 +321,7 @@ process genotype_cohort_gvcf_db {
         tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.gz.tbi")
 
     """
-        gatk --java-options "-Xmx48g -Xms48g" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
             GenotypeGVCFs \\
             -R ${reference_uncompressed} \\
             -V gendb://${contig}.db \\
@@ -336,13 +341,13 @@ process genotype_cohort_gvcf_db {
 ~ ~ ~ > *  SnpEff Annotate Cohort Chrom VCFs  * < ~ ~ ~  
 =====================================================*/
 
-
 process annotate_vcf {
 
     label 'lg' 
     
     tag { contig }
 
+    cache 'lenient'
     conda "bcftools=1.9 snpeff=4.3.1t"
 
     input:
@@ -381,13 +386,12 @@ process concatenate_vcf {
         tuple path("*"), path("contigs.txt")
 
     output:
-        tuple file("WI.annotated.vcf.gz"), file("WI.annotated.vcf.gz.tbi"), emit: vcf
+        path "WI.annotated.vcf.gz", emit: 'vcf'
         path "WI.annotated.stats.txt", emit: 'soft_stats'
 
     """
         awk '{ print \$0 ".annotated.vcf.gz" }' contigs.txt > contig_set.tsv
         bcftools concat  -O z --file-list contig_set.tsv > WI.annotated.vcf.gz
-        bcftools index --tbi all.vcf.gz
         bcftools stats --verbose WI.annotated.vcf.gz > WI.annotated.stats.txt
     """
 }
@@ -401,120 +405,63 @@ process concatenate_vcf {
 //         ann_vcf_to_cnn_apply;}
 
 
-/*==============================================
-~ ~ ~ > *   Apply Soft Filters on VCF  * < ~ ~ ~
-==============================================*/
+/*===========================================
+~ ~ ~ > *   Apply SNV Soft Filters  * < ~ ~ ~
+===========================================*/
+
+process soft_filter {
+
+    label 'lg'
+
+    conda 'bcftools=1.9'
+
+    input:
+        path "WI.vcf.gz"
+
+    output:
+        tuple path("WI.soft-filter.vcf.gz")
+
+    """
+        bcftools filter --soft-filter depth        --exclude "FORMAT/DP < ${params.min_depth}" -O u --mode +  WI.vcf.gz | \\
+        bcftools filter --soft-filter quality      --exclude "QUAL < ${params.qual}" -O u --mode + | \\
+        bcftools filter --soft-filter readend      --exclude "ReadPosRankSum < ${params.readbias}" -O u --mode + | \\
+        bcftools filter --soft-filter fisherstrand --exclude "FS > ${params.fisherstrand}" -O u --mode + | \\
+        bcftools filter --soft-filter qual_depth   --exclude "QD < ${params.quality_by_depth}" -O u --mode + | \\
+        bcftools filter --soft-filter sor          --exclude "SOR > ${params.strand_odds_ratio}" -O z --mode + > WI.soft-filter.vcf.gz
+        bcftools index WI.soft-filter.vcf.gz
+    """
+}
 
 /*==========================================
 ~ ~ ~ > *   Split Indels and SNVs  * < ~ ~ ~
 ==========================================*/
 
-// process split_snv_indel {
+process split_snv_indel {
 
-//     memory '64 GB'
+    tag { "${contig}" }
+    label 'lg'
 
-//     cpus 12
+    conda "bcftools=1.9 gatk4=4.1.4.0"
 
-//     input:
-//       set file(merge_ann_vcf), file(merge_ann_index) from ann_vcf_to_soft_filter
+    input:
+        path("WI.annotated.vcf.gz")
 
-//     output:
-//       set file("merged_annotated_SNV.vcf"), file("merged_annotated_SNV.vcf.idx") into split_snv_vcf
-//       set file("merged_annotated_INDEL.vcf"), file("merged_annotated_INDEL.vcf.idx") into split_indel_vcf
+    output:
+        path "snvs.vcf.gz", emit: 'snps'
+        path "indels.vcf.gz", emit: 'indels'
 
+  """
+    bcftools view --types snps \\
+                  -O z WI.annotated.vcf.gz > snvs.vcf.gz
 
-//   """
-//     gatk --java-options "-Xmx48g -Xms48g" \\
-//         SelectVariants \\
-//         -R ${reference_uncompressed} \\
-//         -V ${merge_ann_vcf} \\
-//         --select-type-to-include SNP \\
-//         -O merged_annotated_SNV.vcf
+    bcftools view --types indels,mnps WI.annotated.vcf.gz | \\
+        bcftools norm \\
+                 --multiallelics +any \\
+                 -O z > indels.vcf.gz
+  """
 
+}
 
-//     gatk --java-options "-Xmx48g -Xms48g" \\
-//         SelectVariants \\
-//         -R ${reference_uncompressed} \\
-//         -V ${merge_ann_vcf} \\
-//         --select-type-to-include INDEL \\
-//         -O merged_annotated_INDEL.vcf
-//   """
-
-// }
-
-/*==============================================
-~ ~ ~ > *   Apply Indels Soft Filters  * < ~ ~ ~
-==============================================*/
-
-// process apply_soft_filters_indel {
-
-//     cpus params.cpu
-
-//     input:
-//       set file(indel_vcf), file(indel_index) from split_indel_vcf
-
-//     output:
-//       set file("soft_filtered_indels.vcf"), file("soft_filtered_indels.vcf.idx") into soft_filter_indels
-
-
-//     """
-//       bcftools norm --threads ${task.cpus} -m -any -Ov -o norm_indels.vcf ${indel_vcf} 
-
-//       gatk --java-options "-Xmx48g -Xms48g" \\
-//           VariantFiltration \\
-//           -R ${reference_uncompressed} \\
-//           --variant norm_indels.vcf \\
-//           --genotype-filter-expression "DP < ${params.min_depth}" \\
-//           --genotype-filter-name "depth" \\
-//           --filter-expression "QD < ${params.quality_by_depth}" \\
-//           --filter-name "qd" \\
-//           --filter-expression "SOR > ${params.strand_odds_ratio}" \\
-//           --filter-name "sor" \\
-//           --filter-expression "QUAL < ${params.qual}" \\
-//           --filter-name "quality" \\
-//           --filter-expression "ReadPosRankSum < ${params.readbias}" \\
-//           --filter-name "readend" \\
-//           --filter-expression "FS > ${params.fisherstrand}" \\
-//           --filter-name "fisherstrand" \\
-//           -O soft_filtered_indels.vcf
-//     """
-// }
-
-/*===========================================
-~ ~ ~ > *   Apply SNV Soft Filters  * < ~ ~ ~
-===========================================*/
-
-// process apply_soft_filters_snv {
-
-//     cpus params.cpu
-
-//     input:
-//       set file(snp_vcf), file(snp_index) from split_snv_vcf
-
-//     output:
-//       set file("soft_filtered_snps.vcf"), file("soft_filtered_snps.vcf.idx") into soft_filter_snvs
-
-
-//     """
-//       gatk --java-options "-Xmx48g -Xms48g" \\
-//           VariantFiltration \\
-//           -R ${reference_uncompressed} \\
-//           --variant ${snp_vcf} \\
-//           --genotype-filter-expression "DP < ${params.min_depth}" \\
-//           --genotype-filter-name "depth" \\
-//           --filter-expression "QUAL < ${params.qual}" \\
-//           --filter-name "quality" \\
-//           --filter-expression "ReadPosRankSum < ${params.readbias}" \\
-//           --filter-name "readend" \\
-//           --filter-expression "FS > ${params.fisherstrand}" \\
-//           --filter-name "fisherstrand" \\
-//           --filter-expression "QD < ${params.quality_by_depth}" \\
-//           --filter-name "qd" \\
-//           --filter-expression "SOR > ${params.strand_odds_ratio}" \\
-//           --filter-name "sor" \\
-//           -O soft_filtered_snps.vcf
-//     """
-// }
 
 /*============================================
 ~ ~ ~ > *   Combine SNVs and Indels  * < ~ ~ ~
