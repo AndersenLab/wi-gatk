@@ -387,12 +387,10 @@ process concatenate_vcf {
 
     output:
         path "WI.annotated.vcf.gz", emit: 'vcf'
-        path "WI.annotated.stats.txt", emit: 'soft_stats'
 
     """
         awk '{ print \$0 ".annotated.vcf.gz" }' contigs.txt > contig_set.tsv
         bcftools concat  -O z --file-list contig_set.tsv > WI.annotated.vcf.gz
-        bcftools stats --verbose WI.annotated.vcf.gz > WI.annotated.stats.txt
     """
 }
 
@@ -419,7 +417,8 @@ process soft_filter {
         path "WI.vcf.gz"
 
     output:
-        tuple path("WI.soft-filter.vcf.gz")
+        tuple path("WI.soft-filter.vcf.gz"), path("WI.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
+        path "WI.${date}.soft-filter.stats.txt", emit: 'soft_stats'
 
     """
         bcftools filter --soft-filter depth        --exclude "FORMAT/DP < ${params.min_depth}" -O u --mode +  WI.vcf.gz | \\
@@ -427,41 +426,13 @@ process soft_filter {
         bcftools filter --soft-filter readend      --exclude "ReadPosRankSum < ${params.readbias}" -O u --mode + | \\
         bcftools filter --soft-filter fisherstrand --exclude "FS > ${params.fisherstrand}" -O u --mode + | \\
         bcftools filter --soft-filter qual_depth   --exclude "QD < ${params.quality_by_depth}" -O u --mode + | \\
+        bcftools filter --soft-filter high_missing --include "F_MISSING<=${params.missing}" | \\
         bcftools filter --soft-filter sor          --exclude "SOR > ${params.strand_odds_ratio}" -O z --mode + > WI.soft-filter.vcf.gz
         bcftools index WI.soft-filter.vcf.gz
+        bcftools stats --threads ${task.cpus} \\
+                       --verbose WI.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
     """
 }
-
-/*==========================================
-~ ~ ~ > *   Split Indels and SNVs  * < ~ ~ ~
-==========================================*/
-
-process split_snv_indel {
-
-    tag { "${contig}" }
-    label 'lg'
-
-    conda "bcftools=1.9 gatk4=4.1.4.0"
-
-    input:
-        path("WI.annotated.vcf.gz")
-
-    output:
-        path "snvs.vcf.gz", emit: 'snps'
-        path "indels.vcf.gz", emit: 'indels'
-
-  """
-    bcftools view --types snps \\
-                  -O z WI.annotated.vcf.gz > snvs.vcf.gz
-
-    bcftools view --types indels,mnps WI.annotated.vcf.gz | \\
-        bcftools norm \\
-                 --multiallelics +any \\
-                 -O z > indels.vcf.gz
-  """
-
-}
-
 
 /*============================================
 ~ ~ ~ > *   Combine SNVs and Indels  * < ~ ~ ~
@@ -751,8 +722,6 @@ process split_snv_indel {
 
 //     """
 // }
-
-
 
 // impute_vcf
 //   .toSortedList()
