@@ -106,14 +106,6 @@ out += """
     readbias                                               ${params.readbias}
 
 
-    reference = "/projects/b1059/data/genomes/c_elegans/${genome}/${genome}.fa.gz"
-    gff = "/${base_input_dir}bin/ce.gff3.gz"
-    interval_bed = "${base_input_dir}bin/Split_Genome_test.bed"
-    // variant filters
-    missing = 0.95
-    annotation_reference = "WS263"
-
-
 """
 
 out
