@@ -7,11 +7,11 @@
 */
 nextflow.preview.dsl=2
 
-// For now, this pipeline requires NXF_VER 19.12.0
+// For now, this pipeline requires NXF_VER 20.01.0-rc1
 // Prefix this version when running
 // e.g.
 // NXF_VER=19.12.0-edge nextflow run ...
-assert System.getenv("NXF_VER") == "19.12.0-edge"
+assert System.getenv("NXF_VER") == "20.01.0-rc1"
 
 /*
     Params
@@ -36,21 +36,23 @@ if (params.debug.toString() == "true") {
     params.sample_sheet = "sample_sheet.tsv"
 }
 
-// defaults
+/*
+    Defaults
+*/
 params.help                   = false
 params.bamdir                 = null
 params.out_base               = null
 params.gff                    = null
 params.strains                = false
 params.annotation_reference   = null
-
 // Variant Filtering
-params.min_depth = 1
-params.qual = 20
-params.readbias = 1
-params.fisherstrand = 1
-params.quality_by_depth = 1
-params.strand_odds_ratio = 1
+params.min_depth = 5
+params.qual = 30.0
+params.strand_odds_ratio = 5.0
+params.dv_dp = 0.5
+params.quality_by_depth = 5.0
+params.fisherstrand = 50.0
+params.readbias = -5.0
 
 
 params.out                    = "${date}-${params.out_base}"
@@ -85,17 +87,32 @@ out += """
     
     Flags:
     --help                                      Display this message
-    
-    --------------------------------------------------------
 
     parameters              description                    Set/Default
     ==========              ===========                    ========================
     --bamdir                bam directory                  ${params.bamdir}
     --sample_sheet          sample sheet                   ${params.sample_sheet}
-    CPUs                                = ${params.cores}
-    debug                               = ${params.debug}
-    Region file.                        = ${params.interval_bed}
-    Output folder                       = ${params.out}
+    debug                   Run in debug                   ${params.debug}
+
+    
+    >> Variant Filters >>
+
+    min_depth                                              ${params.min_depth}
+    qual.                                                  ${params.qual}
+    strand_odds_ratio                                      ${params.strand_odds_ratio}
+    dv_dp                                                  ${params.dv_dp}
+    quality_by_depth                                       ${params.quality_by_depth}
+    fisherstrand                                           ${params.fisherstrand}
+    readbias                                               ${params.readbias}
+
+
+    reference = "/projects/b1059/data/genomes/c_elegans/${genome}/${genome}.fa.gz"
+    gff = "/${base_input_dir}bin/ce.gff3.gz"
+    interval_bed = "${base_input_dir}bin/Split_Genome_test.bed"
+    // variant filters
+    missing = 0.95
+    annotation_reference = "WS263"
+
 
 """
 
