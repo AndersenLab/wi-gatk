@@ -36,6 +36,10 @@ if (params.debug.toString() == "true") {
     params.sample_sheet = "sample_sheet.tsv"
 }
 
+/*
+    Config
+*/
+
 // defaults
 params.help                   = false
 params.bamdir                 = null
@@ -45,12 +49,14 @@ params.strains                = false
 params.annotation_reference   = null
 
 // Variant Filtering
-params.min_depth = 1
-params.qual = 20
-params.readbias = 1
-params.fisherstrand = 1
-params.quality_by_depth = 1
-params.strand_odds_ratio = 1
+params.min_depth = 5
+params.qual = 30.0
+params.strand_odds_ratio = 5.0
+params.dv_dp = 0.5
+params.quality_by_depth = 5.0
+params.fisherstrand = 50.0
+params.readbias = -5.0
+params.missing_max = 0.95
 
 
 params.out                    = "${date}-${params.out_base}"
@@ -66,10 +72,21 @@ def log_summary() {
 '''
 out += """
 
-    parameters        description        Set/Default
-    ==========        ===========        ========================
-    bamdir            bam directory      ${params.bamdir}
-    sample_sheet      sample sheet       ${params.sample_sheet}
+    parameters            description                Set/Default
+    ==========            ===========                ========================
+    bamdir                bam directory              ${params.bamdir}
+    sample_sheet          sample sheet               ${params.sample_sheet}
+        
+    Variant Calling        
+    ---------------        
+    min_depth             Minimum variant depth      ${params.min_depth}
+    qual                  Variant QUAL score         ${params.qual}
+    strand_odds_ratio     Strand Odds Ratio          ${params.strand_odds_ratio} 
+    dv_dp                 Good ALT reads / depth     ${params.dv_dp}
+    quality_by_depth      QD                         ${params.quality_by_depth} 
+    fisherstrand          FS                         ${params.fisherstrand}
+    readbias              ReadPosRankSum             ${params.readbias}
+    missing_max           % missing genotypes        ${params.missing_max}
 
 
 ---
