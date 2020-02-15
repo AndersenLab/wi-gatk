@@ -10,7 +10,7 @@ nextflow.preview.dsl=2
 // For now, this pipeline requires NXF_VER 20.01.0-rc1
 // Prefix this version when running
 // e.g.
-// NXF_VER=19.12.0-edge nextflow run ...
+// NXF_VER=20.01.0-rc1 nextflow run ...
 assert System.getenv("NXF_VER") == "20.01.0-rc1"
 
 /*
@@ -36,23 +36,21 @@ if (params.debug.toString() == "true") {
     params.sample_sheet = "sample_sheet.tsv"
 }
 
-/*
-    Defaults
-*/
+// defaults
 params.help                   = false
 params.bamdir                 = null
 params.out_base               = null
 params.gff                    = null
 params.strains                = false
 params.annotation_reference   = null
+
 // Variant Filtering
-params.min_depth = 5
-params.qual = 30.0
-params.strand_odds_ratio = 5.0
-params.dv_dp = 0.5
-params.quality_by_depth = 5.0
-params.fisherstrand = 50.0
-params.readbias = -5.0
+params.min_depth = 1
+params.qual = 20
+params.readbias = 1
+params.fisherstrand = 1
+params.quality_by_depth = 1
+params.strand_odds_ratio = 1
 
 
 params.out                    = "${date}-${params.out_base}"
@@ -67,52 +65,22 @@ def log_summary() {
                                               
 '''
 out += """
-    ----------------------------------------------------------------
-                          USAGE                                     
-    ----------------------------------------------------------------
-    
-    nextflow main.nf --out_base Analysis
-    
-    Mandatory arguments:
-    --out_base             String                Name of folder to output results
-    --strains              String                Name of folder to output results 
-    --bamdir               String                Name of folder where bam files are
-    
-    --------------------------------------------------------
-    Optional arguments:
-    Information describing the stucture of the input files can be located in input_files/README.txt
-    
-    --annotation_reference STRING               Wormbase build for SnpEff annotations
-    --email                STRING               email address for job notifications
-    
-    Flags:
-    --help                                      Display this message
 
-    parameters              description                    Set/Default
-    ==========              ===========                    ========================
-    --bamdir                bam directory                  ${params.bamdir}
-    --sample_sheet          sample sheet                   ${params.sample_sheet}
-    debug                   Run in debug                   ${params.debug}
-
-    
-    >> Variant Filters >>
-
-    min_depth                                              ${params.min_depth}
-    qual.                                                  ${params.qual}
-    strand_odds_ratio                                      ${params.strand_odds_ratio}
-    dv_dp                                                  ${params.dv_dp}
-    quality_by_depth                                       ${params.quality_by_depth}
-    fisherstrand                                           ${params.fisherstrand}
-    readbias                                               ${params.readbias}
+    parameters        description        Set/Default
+    ==========        ===========        ========================
+    bamdir            bam directory      ${params.bamdir}
+    sample_sheet      sample sheet       ${params.sample_sheet}
 
 
+---
 """
-
+log.info(out)
 out
 }
 
+log_summary()
+
 if (params.help) {
-    log_summary()
     exit 1
 }
 
@@ -123,43 +91,9 @@ if (workflow.profile == "") {
 
 strains = params.strains ? params.strains.split(",") : false
 
-// // Define contigs here!
-// CONTIG_LIST = ["I", "II", "III", "IV", "V", "X", "MtDNA"]
-// contigs = Channel.from(CONTIG_LIST)
-
-// /*
-// ~ ~ ~ > * gff file for snpeff
-// */
-
-// cegff = Channel.fromPath(params.gff)
-
 /*=========================================
 ~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
 =========================================*/
-
-process split_genome {
-
-    label 'md'
-
-    conda "gatk4=4.1.4.0"
-
-    output:
-        path "scatter/*-scattered.interval_list"
-
-    script:
-        intervals = params.interval_bed != "" ?  "-L ${params.interval_bed}" : ""
-
-    """
-    gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
-        SplitIntervals \\
-        -R ${reference_uncompressed} \\
-        ${intervals} \\
-        --subdivision-mode BALANCING_WITHOUT_INTERVAL_SUBDIVISION \\
-        --scatter-count 20 \\
-        -ip 250 \\
-        -O scatter
-    """
-}
 
 process get_contigs {
 
@@ -260,6 +194,7 @@ process call_variants_individual {
             -L ${region} \\
             -O ${region}.g.vcf   
         bcftools view -O z ${region}.g.vcf > ${region}.g.vcf.gz
+        rm ${region}.g.vcf
     """
 }
 
@@ -435,7 +370,7 @@ process soft_filter {
         bcftools filter --soft-filter readend      --exclude "ReadPosRankSum < ${params.readbias}" -O u --mode + | \\
         bcftools filter --soft-filter fisherstrand --exclude "FS > ${params.fisherstrand}" -O u --mode + | \\
         bcftools filter --soft-filter qual_depth   --exclude "QD < ${params.quality_by_depth}" -O u --mode + | \\
-        bcftools filter --soft-filter high_missing --include "F_MISSING<=${params.missing}" | \\
+        bcftools filter --soft-filter high_missing --exclude "F_MISSING<=${params.missing_max}" | \\
         bcftools filter --soft-filter sor          --exclude "SOR > ${params.strand_odds_ratio}" -O z --mode + > WI.soft-filter.vcf.gz
         bcftools index WI.soft-filter.vcf.gz
         bcftools stats --threads ${task.cpus} \\
