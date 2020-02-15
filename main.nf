@@ -70,14 +70,24 @@ def log_summary() {
 |_______|___|___| |___| |__|\\__|    |__|____|___|    
                                               
 '''
+
 out += """
 
     parameters            description                Set/Default
     ==========            ===========                ========================
-    bamdir                bam directory              ${params.bamdir}
+    output                Release Directory          ${params.output}
     sample_sheet          sample sheet               ${params.sample_sheet}
+    bamdir                bam directory              ${params.bamdir}
+    username                                         ${"whoami".execute().in.text}
+
+    Nextflow Run
+    ---------------
+    ${workflow.commandLine}
+    run name                                         ${workflow.runName}
+    scriptID                                         ${workflow.scriptId}
+    git commit                                       ${workflow.commitId}
         
-    Variant Calling        
+    Variant Filters      
     ---------------        
     min_depth             Minimum variant depth      ${params.min_depth}
     qual                  Variant QUAL score         ${params.qual}
@@ -87,7 +97,6 @@ out += """
     fisherstrand          FS                         ${params.fisherstrand}
     readbias              ReadPosRankSum             ${params.readbias}
     missing_max           % missing genotypes        ${params.missing_max}
-
 
 ---
 """
@@ -107,6 +116,29 @@ if (workflow.profile == "") {
 }
 
 strains = params.strains ? params.strains.split(",") : false
+
+process summary {
+    // Generates a summary of the run for the release directory.
+    
+    executor 'local'
+
+    publishDir "${params.output}", mode: 'copy'
+    
+    input:
+        val(run)
+
+    output:
+        path("sample_sheet.tsv")
+        path("summary.txt")
+        path("software_versions.txt")
+
+    """
+        echo '''${log_summary()}''' > summary.txt
+        fd "\\.nf\$" ${workflow.projectDir} --exclude 'work' --exec awk -f ${parse_conda_software} > software_versions.txt
+        cat ${params.sample_sheet} > sample_sheet.tsv
+    """
+
+}
 
 /*=========================================
 ~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
@@ -140,6 +172,9 @@ sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
                       .filter { params.strains ? it[0] in strains : true }
 
 workflow {
+
+    // Generate a summary of the current run
+    summary(Channel.from("run"))
 
     // Get contigs from first bam
     sample_sheet.first() | get_contigs
@@ -370,6 +405,11 @@ process concatenate_vcf {
 
 process soft_filter {
 
+    publishDir "${params.output}/variation", pattern: "*.vcf.gz"
+    publishDir "${params.output}/variation", pattern: "*.vcf.gz.csi"
+    publishDir "${params.output}/variation", pattern: "*.vcf.gz.tbi"
+
+
     label 'lg'
 
     conda 'bcftools=1.9'
@@ -378,7 +418,7 @@ process soft_filter {
         path "WI.vcf.gz"
 
     output:
-        tuple path("WI.soft-filter.vcf.gz"), path("WI.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
+        tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_stats'
 
     """
@@ -388,10 +428,11 @@ process soft_filter {
         bcftools filter --soft-filter fisherstrand --exclude "FS > ${params.fisherstrand}" -O u --mode + | \\
         bcftools filter --soft-filter qual_depth   --exclude "QD < ${params.quality_by_depth}" -O u --mode + | \\
         bcftools filter --soft-filter high_missing --exclude "F_MISSING<=${params.missing_max}" | \\
-        bcftools filter --soft-filter sor          --exclude "SOR > ${params.strand_odds_ratio}" -O z --mode + > WI.soft-filter.vcf.gz
-        bcftools index WI.soft-filter.vcf.gz
+        bcftools filter --soft-filter sor          --exclude "SOR > ${params.strand_odds_ratio}" -O z --mode + > WI.${date}.soft-filter.vcf.gz
+        bcftools index WI.${date}.soft-filter.vcf.gz
+        tabix WI.${date}.soft-filter.vcf.gz
         bcftools stats --threads ${task.cpus} \\
-                       --verbose WI.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
+                       --verbose  WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
     """
 }
 
