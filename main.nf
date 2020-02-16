@@ -100,11 +100,10 @@ out += """
 
 ---
 """
-log.info(out)
 out
 }
 
-log_summary()
+log.info(log_summary())
 
 if (params.help) {
     exit 1
@@ -234,6 +233,8 @@ process call_variants_individual {
             --annotation TandemRepeat \\
             --annotation StrandBiasBySample \\
             --annotation ChromosomeCounts \\
+            --annotation ReadPosRankSumTest \\
+            --annotation AS_ReadPosRankSumTest \\
             --annotation AS_QualByDepth \\
             --annotation AS_StrandOddsRatio \\
             --annotation AS_MappingQualityRankSumTest \\
@@ -424,21 +425,20 @@ process soft_filter {
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_stats'
 
     script:
-        os=System.getenv("OSTYPE") ==~ /darwin.*/ ? "macos" : "linux"
+        os='uname'.execute().text.strip() == "Darwin" ? "macos" : "linux"
     """
       gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
           VariantFiltration \\
           -R ${reference_uncompressed} \\
           --variant WI.vcf.gz \\
-          --genotype-filter-name "dv_dp" \\
-          --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "min_depth" \\
-          --filter-expression "QUAL < ${params.qual}"                --filter-name "quality" \\
-          --filter-expression "ReadPosRankSum < ${params.readbias}"  --filter-name "readbias" \\
-          --filter-expression "FS > ${params.fisherstrand}"          --filter-name "fisherstrand" \\
-          --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "qd" \\
-          --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "sor" \\
+          --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "DP_min_depth" \\
+          --filter-expression "QUAL < ${params.qual}"                --filter-name "QUAL_quality" \\
+          --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
+          --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
+          --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
           -O /dev/stdout | \\
           ad_dp_${os}
+        # ad_dp outputs a file called 'ad_dp.filtered.vcf.gz'
         mv ad_dp.filtered.vcf.gz WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz

@@ -31,6 +31,12 @@ proc isHomRef(gt: Genotype): bool =
             return false
     return true
 
+proc isMissing(gt: Genotype): bool = 
+    for i in gt:
+        if i.value() < 0:
+            return true
+    return false
+
 var wtr:VCF
 var v:VCF
 doAssert(open(v, "-"))
@@ -50,7 +56,15 @@ for record in v:
     var gt = record.format.genotypes(gts)
     doAssert record.format.get("AD", ad) == Status.OK
     doAssert record.format.get("DP", dp) == Status.OK
-    doAssert record.format.get("FT", ft) == Status.OK
+    try:
+        doAssert record.format.get("FT", ft) == Status.OK
+    except:
+        # If FT not present, set values
+        for i in 0..<ft.len:
+            if gt[i].isMissing():
+                ft[i] = "."
+            else:
+                ft[i] = "PASS"
     for sample_index in 0..<n_samples:
         if gt[sample_index].isHomRef() == false:
             var ad_set: seq[int32]
@@ -60,10 +74,14 @@ for record in v:
             if ad_set.len == 0:
                 continue
             if (max(ad_set).float / dp[sample_index].float) < 0.5:
-                if ft[sample_index] == "PASS":
+                if ft[sample_index] in ["PASS", "."]:
                     ft[sample_index] = "ad_dp"
                 else:
                     if ft[sample_index].split(";").find("ad_dp") == -1:
                         ft[sample_index] = "ad_dp;" & ft[sample_index]
-    doAssert record.format.set("FT", ft) == Status.OK
+    var r = record.format.set("FT", ft)
     doAssert wtr.write_variant(record)
+
+close(v)
+close(wtr)
+
