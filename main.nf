@@ -55,7 +55,6 @@ params.strand_odds_ratio = 5.0
 params.dv_dp = 0.5
 params.quality_by_depth = 5.0
 params.fisherstrand = 50.0
-params.readbias = -5.0
 params.missing_max = 0.95
 
 
@@ -91,11 +90,10 @@ out += """
     ---------------        
     min_depth             Minimum variant depth      ${params.min_depth}
     qual                  Variant QUAL score         ${params.qual}
-    strand_odds_ratio     Strand Odds Ratio          ${params.strand_odds_ratio} 
-    dv_dp                 Good ALT reads / depth     ${params.dv_dp}
-    quality_by_depth      QD                         ${params.quality_by_depth} 
-    fisherstrand          FS                         ${params.fisherstrand}
-    readbias              ReadPosRankSum             ${params.readbias}
+    ad_dp                 Good ALT reads / depth     ${params.dv_dp}
+    strand_odds_ratio     SOR_strand_odds_ratio      ${params.strand_odds_ratio} 
+    quality_by_depth      QD_quality_by_depth        ${params.quality_by_depth} 
+    fisherstrand          FS_fisher_strand           ${params.fisherstrand}
     missing_max           % missing genotypes        ${params.missing_max}
 
 ---
