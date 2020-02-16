@@ -22,8 +22,8 @@ params.debug = false
 params.email = ""
 params.reference = "${workflow.projectDir}/WS245/WS245.fa.gz"
 params.annotation_reference = "WS263"
-reference_uncompressed = file(params.reference.replace(".gz", ""), checkExists: true)
-parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk")
+reference_uncompressed = file(params.reference.replace(".gz", ""), checkIfExists: true)
+parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk", checkIfExists: true)
 
 // Debug
 if (params.debug.toString() == "true") {
@@ -260,7 +260,7 @@ process concat_strain_gvcfs {
 
     label 'sm'
     tag { "${strain}" }
-    conda 'bcftools=1.9'
+    conda "bcftools=1.9"
 
     input:
         tuple strain, ref_strain, path("*"), path(contigs)
@@ -378,15 +378,18 @@ process concatenate_vcf {
 
     label 'lg'
 
+    conda 'bcftools=1.9'
+
     input:
         tuple path("*"), path("contigs.txt")
 
     output:
-        path "WI.annotated.vcf.gz", emit: 'vcf'
+        tuple path("WI.annotated.vcf.gz"), path("WI.annotated.vcf.gz.tbi"), emit: 'vcf'
 
     """
         awk '{ print \$0 ".annotated.vcf.gz" }' contigs.txt > contig_set.tsv
         bcftools concat  -O z --file-list contig_set.tsv > WI.annotated.vcf.gz
+        tabix WI.annotated.vcf.gz
     """
 }
 
@@ -409,26 +412,35 @@ process soft_filter {
     publishDir "${params.output}/variation", pattern: "*.vcf.gz.csi"
     publishDir "${params.output}/variation", pattern: "*.vcf.gz.tbi"
 
-
     label 'lg'
 
-    conda 'bcftools=1.9'
+    conda "bcftools=1.9 gatk4=4.1.4.0"
 
     input:
-        path "WI.vcf.gz"
+        tuple path("WI.vcf.gz"), path("WI.vcf.gz.tbi")
 
     output:
         tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_stats'
 
+    script:
+        os=System.getenv("OSTYPE") ==~ /darwin.*/ ? "macos" : "linux"
     """
-        bcftools filter --soft-filter depth        --exclude "FORMAT/DP < ${params.min_depth}" -O u --mode +  WI.vcf.gz | \\
-        bcftools filter --soft-filter quality      --exclude "QUAL < ${params.qual}" -O u --mode + | \\
-        bcftools filter --soft-filter readend      --exclude "ReadPosRankSum < ${params.readbias}" -O u --mode + | \\
-        bcftools filter --soft-filter fisherstrand --exclude "FS > ${params.fisherstrand}" -O u --mode + | \\
-        bcftools filter --soft-filter qual_depth   --exclude "QD < ${params.quality_by_depth}" -O u --mode + | \\
-        bcftools filter --soft-filter high_missing --exclude "F_MISSING<=${params.missing_max}" | \\
-        bcftools filter --soft-filter sor          --exclude "SOR > ${params.strand_odds_ratio}" -O z --mode + > WI.${date}.soft-filter.vcf.gz
+      gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+          VariantFiltration \\
+          -R ${reference_uncompressed} \\
+          --variant WI.vcf.gz \\
+          --genotype-filter-name "dv_dp" \\
+          --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "min_depth" \\
+          --filter-expression "QUAL < ${params.qual}"                --filter-name "quality" \\
+          --filter-expression "ReadPosRankSum < ${params.readbias}"  --filter-name "readbias" \\
+          --filter-expression "FS > ${params.fisherstrand}"          --filter-name "fisherstrand" \\
+          --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "qd" \\
+          --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "sor" \\
+          -O /dev/stdout | \\
+          ad_dp_${os}
+        mv ad_dp.filtered.vcf.gz WI.${date}.soft-filter.vcf.gz
+
         bcftools index WI.${date}.soft-filter.vcf.gz
         tabix WI.${date}.soft-filter.vcf.gz
         bcftools stats --threads ${task.cpus} \\
@@ -436,128 +448,6 @@ process soft_filter {
     """
 }
 
-/*============================================
-~ ~ ~ > *   Combine SNVs and Indels  * < ~ ~ ~
-============================================*/
-
-// process combine_soft_filter_vcfs {
-
-//     cpus params.cpu
-
-//     input:
-//       set file("soft_filtered_snps.vcf"), file("soft_filtered_snps.vcf.isx") from soft_filter_snvs
-//       set file("soft_filtered_indels.vcf"), file("soft_filtered_indels.vcf.idx") from soft_filter_indels
-
-//     output:
-//       set file("WI.${date}.soft-filter.vcf.gz"), file("WI.${date}.soft-filter.vcf.gz.tbi") into soft_filtered_cohort_vcf
-//       file("WI.${date}.soft-filter.stats.txt") into soft_filtered_stats_to_mqc
-
-
-//     """
-//       bcftools view -Oz -o soft_filtered_indels.vcf.gz soft_filtered_indels.vcf
-//       tabix -p vcf soft_filtered_indels.vcf.gz
-
-//       bcftools view -Oz -o soft_filtered_snps.vcf.gz soft_filtered_snps.vcf
-//       tabix -p vcf soft_filtered_snps.vcf.gz
-
-//       bcftools concat \\
-//       --threads ${task.cpus-1} \\
-//       --allow-overlaps \\
-//       soft_filtered_indels.vcf.gz \\
-//       soft_filtered_snps.vcf.gz | \\
-//       bcftools filter -Oz --threads ${task.cpus-1} --mode + --soft-filter high_missing --include "F_MISSING<=${params.missing}" > WI.${date}.soft-filter.vcf.gz
-
-//       tabix -p vcf WI.${date}.soft-filter.vcf.gz
-//       bcftools stats --verbose WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
-//     """
-// }
-
-// soft_filtered_cohort_vcf
-//   .into{soft_vcf_to_strain_list;
-//         soft_vcf_to_split_by_strain;
-//         soft_vcf_to_other}
-
-/*========================================
-~ ~ ~ > *   Split VCF by sample  * < ~ ~ ~
-========================================*/
-
-// process generate_strain_list {
-
-//     executor 'local'
-
-//     input:
-//         set file(softvcf), file(softvcf_index) from soft_vcf_to_strain_list
-
-//     output:
-//         file('isotype_list.tsv') into isotype_list
-
-//     """
-//         bcftools query -l ${softvcf} > isotype_list.tsv
-//     """
-
-// }
-
-// isotype_list
-//   .splitText() { it.strip() } 
-//   .combine(soft_vcf_to_split_by_strain)
-//   .into{isotype_set_vcf; 
-//         isotype_set_tsv}
-
-/*=========================================
-~ ~ ~ > *   Apply AD soft filter  * < ~ ~ ~
-=========================================*/
-
-// process apply_allele_depth_filter {
-
-//     tag { isotype }
-
-//     memory '64 GB'
-
-//     input:
-//         set val(isotype), file(softvcf), file(softvcf_vcf) from isotype_set_vcf
-
-//     output:
-//         file("${isotype}.AD-filter.vcf.gz") into isotype_AD_soft_vcf
-//         file("${isotype}.AD-filter.vcf.gz.tbi") into isotype_AD_soft_vcf_index
-
-//     """
-//     bcftools view --samples ${isotype} ${softvcf} |\\
-//     bcftools filter -Ov --mode + --soft-filter dv_dp --include "((FORMAT/AD[*:1])/(FORMAT/DP) >= 0.5) || (FORMAT/GT == '0/0') || (TYPE == 'REF')" -Ov -o ${isotype}_temp.vcf
-
-//     gatk --java-options "-Xmx4g -Xms4g" \\
-//          VariantFiltration \\
-//          -R ${reference_uncompressed} \\
-//          --variant ${isotype}_temp.vcf \\
-//          --genotype-filter-expression "FILTER != 'PASS'" \\
-//          --genotype-filter-name "dv_dp" \\
-//          -O temp_soft_filtered.vcf
-
-//     awk 'BEGIN{FS=OFS="\\t"} {gsub("dv_dp",\$7,\$10)} 1' temp_soft_filtered.vcf | \\
-//     bcftools view -Oz -o ${isotype}.AD-filter.vcf.gz
-
-//     tabix -p vcf ${isotype}.AD-filter.vcf.gz
-//     """
-
-// }
-
-// contigs_soft = Channel.from(CONTIG_LIST)
-
-// contigs_soft
-//   .into{contigs_vcf;
-//         contigs_index;
-//         contigs_impute;
-//         }
-
-// contigs_vcf
-//   .spread(isotype_AD_soft_vcf)
-//   .groupTuple()
-//   .set{ to_merge_soft_sm_ad }
-
-// contigs_index
-//   .spread(isotype_AD_soft_vcf_index)
-//   .groupTuple()
-//   .into{ to_merge_soft_sm_ad_index;
-//         print_merged_index }
 
 /*========================================
 ~ ~ ~ > *   Combine Cohort VCFs  * < ~ ~ ~
