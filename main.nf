@@ -160,10 +160,17 @@ workflow {
     concatenate_vcf.out.vcf | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
+    // Generate Strain-level TSV and VCFs
+    soft_filter.out.soft_filter_vcf | strain_list
+    strain_list.out.splitText()
+                   .map { it.trim() }
+                   .combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv_vcf
+
     // MultiQC Report
     soft_filter.out.soft_vcf_stats.concat(
-        hard_filter.out.hard_vcf_stats
-    ).collect().view() | multiqc_report
+        hard_filter.out.hard_vcf_stats,
+        annotate_vcf.out.snpeff_csv
+    ).collect() | multiqc_report
 
 }
 
@@ -348,8 +355,6 @@ process genotype_cohort_gvcf_db {
 process annotate_vcf {
 
     label 'lg' 
-
-    publishDir "${params.output}/variation", mode:'copy', pattern: "*.csv"
     
     tag { contig }
 
@@ -361,7 +366,7 @@ process annotate_vcf {
 
     output:
         tuple path("${contig}.annotated.vcf.gz"), path("${contig}.annotated.vcf.gz.tbi"), emit: 'anno_vcf'
-        path "WI.${date}.snpeff.csv", emit: 'snpeff_out'
+        path "${contig}.${date}.snpeff.csv", emit: 'snpeff_csv'
 
 
     """
@@ -369,7 +374,7 @@ process annotate_vcf {
       bcftools csq -O v --fasta-ref ${params.reference} \\
                      --gff-annot ${file(params.annotation_gff, checkIfExists: true)} \\
                      --phase a | \\
-      snpEff eff -csvStats WI.${date}.snpeff.csv \\
+      snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
                  -no-downstream \\
                  -no-intergenic \\
                  -no-upstream \\
@@ -504,6 +509,55 @@ process hard_filter {
         bcftools index --tbi WI.${date}.hard-filter.vcf.gz
         bcftools stats --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
     """
+}
+
+process strain_list {
+
+    input:
+        tuple path(vcf), path(vcf_index)
+    
+    output:
+        file("samples.txt")
+
+    """
+        bcftools query --list-samples ${vcf} > samples.txt
+    """
+}
+
+
+process generate_strain_tsv_vcf {
+    // Generate a single TSV and VCF for every strain.
+
+    tag { strain }
+
+    publishDir "${params.output}/strain/vcf", mode: 'copy', pattern: "*.vcf.gz*"
+    publishDir "${params.output}/strain/tsv", mode: 'copy', pattern: "*.tsv.gz*"
+
+    input:
+        tuple val(strain), path(vcf), file(vcf_index)
+
+    output:
+        tuple path("${strain}.${date}.vcf.gz"),  path("${strain}.${date}.vcf.gz.tbi")
+        tuple path("${strain}.${date}.vcf.gz"),  path("${strain}.${date}.vcf.gz.csi")
+        tuple path("${strain}.${date}.tsv.gz"),  path("${strain}.${date}.tsv.gz.tbi")
+
+    """
+        # Generate VCF
+        bcftools view -O z --samples ${strain} \\
+                           --exclude-uncalled \\
+                           ${vcf}  > ${strain}.${date}.vcf.gz
+        bcftools index ${strain}.${date}.vcf.gz
+        bcftools index --tbi ${strain}.${date}.vcf.gz
+
+        # Generate TSV
+        {
+            echo 'CHROM\\tPOS\\tREF\\tALT\\tFILTER\\tFT\\tGT';
+            bcftools query -f '[%CHROM\\t%POS\\t%REF\\t%ALT\t%FILTER\\t%FT\\t%TGT]\\n' --samples ${strain} ${vcf};
+        } > ${strain}.${date}.tsv
+        bgzip ${strain}.${date}.tsv
+        tabix -S 1 -s 1 -b 2 -e 2 ${strain}.${date}.tsv.gz
+    """
+
 }
 
 
