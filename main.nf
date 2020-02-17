@@ -166,6 +166,9 @@ workflow {
                    .map { it.trim() }
                    .combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv_vcf
 
+    // Tajima BED File
+    hard_filter.out.vcf | tajima_bed
+
     // MultiQC Report
     soft_filter.out.soft_vcf_stats.concat(
         hard_filter.out.hard_vcf_stats,
@@ -477,7 +480,7 @@ process hard_filter {
         tuple path(vcf), path(vcf_index), path(contigs)
 
     output:
-        tuple path("WI.${date}.hard-filter.vcf.gz"), path("WI.${date}.hard-filter.vcf.gz.csi")
+        tuple path("WI.${date}.hard-filter.vcf.gz"), path("WI.${date}.hard-filter.vcf.gz.csi"), emit: 'vcf'
         path "WI.${date}.hard-filter.vcf.gz.tbi"
         path "WI.${date}.hard-filter.stats.txt", emit: 'hard_vcf_stats'
 
@@ -556,6 +559,25 @@ process generate_strain_tsv_vcf {
         } > ${strain}.${date}.tsv
         bgzip ${strain}.${date}.tsv
         tabix -S 1 -s 1 -b 2 -e 2 ${strain}.${date}.tsv.gz
+    """
+
+}
+
+
+process tajima_bed {
+
+    conda "vcfkit=0.1.6"
+
+    publishDir "${params.output}/popgen", mode: 'copy'
+
+    input:
+        tuple path(vcf), path(vcf_index)
+    output:
+        set file("WI.${date}.tajima.bed.gz"), file("WI.${date}.tajima.bed.gz.tbi")
+
+    """
+        vk tajima --no-header 100000 10000 ${vcf} | bgzip > WI.${date}.tajima.bed.gz
+        tabix WI.${date}.tajima.bed.gz
     """
 
 }
