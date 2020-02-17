@@ -22,6 +22,7 @@ params.debug = false
 params.email = ""
 params.reference = "${workflow.projectDir}/WS245/WS245.fa.gz"
 params.annotation_reference = "WS263"
+params.annotation_gff = "${workflow.projectDir}/genome/PRJNA13758_WS274/c_elegans.PRJNA13758.WS274.annotations.sorted.gff3.gz"
 reference_uncompressed = file(params.reference.replace(".gz", ""), checkIfExists: true)
 parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk", checkIfExists: true)
 
@@ -46,7 +47,6 @@ params.bamdir                 = null
 params.out_base               = null
 params.gff                    = null
 params.strains                = false
-params.annotation_reference   = null
 
 // Variant Filtering
 params.min_depth = 5
@@ -55,7 +55,8 @@ params.strand_odds_ratio = 5.0
 params.dv_dp = 0.5
 params.quality_by_depth = 5.0
 params.fisherstrand = 50.0
-params.missing_max = 0.95
+params.high_missing = 0.95
+params.high_heterozygosity = 0.10
 
 
 params.out                    = "${date}-${params.out_base}"
@@ -94,7 +95,8 @@ out += """
     strand_odds_ratio     SOR_strand_odds_ratio      ${params.strand_odds_ratio} 
     quality_by_depth      QD_quality_by_depth        ${params.quality_by_depth} 
     fisherstrand          FS_fisher_strand           ${params.fisherstrand}
-    missing_max           % missing genotypes        ${params.missing_max}
+    missing_max           % missing genotypes        ${params.high_missing}
+    heterozygosity_max    % max heterozygosity       ${params.high_heterozygosity}
 
 ---
 """
@@ -199,6 +201,7 @@ workflow {
     vcfs = annotate_vcf.out.anno_vcf.collect().map { [it] }.combine(get_contigs.out)
     vcfs | concatenate_vcf
     concatenate_vcf.out.vcf | soft_filter
+    soft_filter.out.soft_filter_vcf | hard_filter
 
 }
 
@@ -355,6 +358,9 @@ process annotate_vcf {
 
     """
       bcftools view --threads=${task.cpus-1} --regions ${contig} ${contig}.vcf.gz | \\
+      bcftools csq -O v --fasta-ref ${reference} \\
+                     --gff-annot ${annotation_gff} \\
+                     --phase a | \\
       snpEff eff -csvStats snpeff_out.csv \\
                  -no-downstream \\
                  -no-intergenic \\
@@ -388,7 +394,7 @@ process concatenate_vcf {
     """
         awk '{ print \$0 ".annotated.vcf.gz" }' contigs.txt > contig_set.tsv
         bcftools concat  -O z --file-list contig_set.tsv > WI.annotated.vcf.gz
-        tabix WI.annotated.vcf.gz
+        bcftools index --tbi WI.annotated.vcf.gz
     """
 }
 
@@ -407,183 +413,102 @@ process concatenate_vcf {
 
 process soft_filter {
 
-    publishDir "${params.output}/variation", pattern: "*.vcf.gz"
-    publishDir "${params.output}/variation", pattern: "*.vcf.gz.csi"
-    publishDir "${params.output}/variation", pattern: "*.vcf.gz.tbi"
+    publishDir "${params.output}/variation", mode: 'copy'
 
     label 'lg'
 
     conda "bcftools=1.9 gatk4=4.1.4.0"
 
     input:
-        tuple path("WI.vcf.gz"), path("WI.vcf.gz.tbi")
+        tuple path(vcf), path(vcf_index)
 
     output:
         tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
+        path "WI.${date}.soft-filter.vcf.gz.tbi"
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_stats'
 
     script:
         os='uname'.execute().text.strip() == "Darwin" ? "macos" : "linux"
     """
-      gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
-          VariantFiltration \\
-          -R ${reference_uncompressed} \\
-          --variant WI.vcf.gz \\
-          --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "DP_min_depth" \\
-          --filter-expression "QUAL < ${params.qual}"                --filter-name "QUAL_quality" \\
-          --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
-          --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
-          --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
-          -O /dev/stdout | \\
-          ad_dp_${os}
+        function cleanup {
+            rm ad_dp.filtered.vcf.gz
+        }
+        trap cleanup EXIT
+
+        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+            VariantFiltration \\
+            -R ${reference_uncompressed} \\
+            --variant ${vcf} \\
+            --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "DP_min_depth" \\
+            --filter-expression "QUAL < ${params.qual}"                --filter-name "QUAL_quality" \\
+            --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
+            --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
+            --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
+            -O /dev/stdout | \\
+            ad_dp_${os}
         # ad_dp outputs a file called 'ad_dp.filtered.vcf.gz'
-        mv ad_dp.filtered.vcf.gz WI.${date}.soft-filter.vcf.gz
+  
+        # Apply high missing and high heterozygosity filters
+        bcftools filter --soft-filter='high_missing' --mode +x --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
+        bcftools filter --soft-filter='high_heterozygosity' --mode +x --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz
-        tabix WI.${date}.soft-filter.vcf.gz
+        bcftools index --tbi WI.${date}.soft-filter.vcf.gz
         bcftools stats --threads ${task.cpus} \\
-                       --verbose  WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
+                        --verbose  WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
     """
 }
 
-
-/*========================================
-~ ~ ~ > *   Combine Cohort VCFs  * < ~ ~ ~
-========================================*/
-
-// process merge_sm_soft_vcfs {
-
-//     tag { chrom }
-
-//     memory '64 GB'
-//     cpus 4
-
-//     input:
-//         set val(chrom), file(softvcf) from to_merge_soft_sm_ad
-//         set val(chrom), file(softvcf_vcf) from to_merge_soft_sm_ad_index
-
-//     output:
-//         file("WI.${chrom}.COMPLETE-SOFT-FILTER.vcf.gz") into cohort_soft_filter_vcf
-//         file("WI.${chrom}.COMPLETE-SOFT-FILTER.vcf.gz.tbi") into cohort_soft_filter_vcf_index
-
-//     """
-//         bcftools merge \\
-//         -m none \\
-//         -r ${chrom} \\
-//         -Oz -o WI.${chrom}.COMPLETE.vcf.gz \\
-//         ${softvcf}
-
-//         bcftools query -l WI.${chrom}.COMPLETE.vcf.gz | sort > samples.txt
-
-//         bcftools view -S samples.txt WI.${chrom}.COMPLETE.vcf.gz -Oz -o WI.${chrom}.COMPLETE-SOFT-FILTER.vcf.gz
-
-//         tabix -p vcf WI.${chrom}.COMPLETE-SOFT-FILTER.vcf.gz
-//     """
-// }
-
-// cohort_soft_filter_vcf
-//   .toSortedList()
-//   .set{ to_concat_soft_filter_vcf }
-
-// cohort_soft_filter_vcf_index
-//   .toSortedList()
-//   .set{ to_concat_soft_filter_vcf_index }
-
-/*==================================================
-~ ~ ~ > *   Concatenate Cohort CHROM VCFs  * < ~ ~ ~
-==================================================*/
-
-// process concat_cohort_soft_vcfs {
-
-//     publishDir "${params.out}/variation/", mode: 'copy'
-
-//     memory '64 GB'
-//     cpus 20
-
-//     input:
-//         file(chromvcf) from to_concat_soft_filter_vcf
-//         file(chromvcf_index) from to_concat_soft_filter_vcf_index
-
-//     output:
-//         set file("WI.COMPLETE-SOFT-FILTER.vcf.gz"), file("WI.COMPLETE-SOFT-FILTER.vcf.gz.tbi") into cohort_complete_soft_filter_vcf
-//         set val("soft"), file("WI.COMPLETE-SOFT-FILTER.vcf.gz"), file("WI.COMPLETE-SOFT-FILTER.vcf.gz.tbi") into soft_vcf_summary
-//         set val("soft"), file("WI.COMPLETE-SOFT-FILTER.vcf.gz"), file("WI.COMPLETE-SOFT-FILTER.vcf.gz.tbi") into soft_sample_summary
-//         file("WI.COMPLETE-SOFT-FILTER.stats.txt") into complete_soft_filter_vcf_stats
-
-//     """
-//       bcftools concat \\
-//       --threads ${task.cpus} \\
-//       WI.I.COMPLETE-SOFT-FILTER.vcf.gz \\
-//       WI.II.COMPLETE-SOFT-FILTER.vcf.gz \\
-//       WI.III.COMPLETE-SOFT-FILTER.vcf.gz \\
-//       WI.IV.COMPLETE-SOFT-FILTER.vcf.gz \\
-//       WI.V.COMPLETE-SOFT-FILTER.vcf.gz \\
-//       WI.X.COMPLETE-SOFT-FILTER.vcf.gz \\
-//       WI.MtDNA.COMPLETE-SOFT-FILTER.vcf.gz |\\
-//       bcftools filter -Oz --mode=+x --soft-filter="high_missing" --include 'F_MISSING  <= ${params.missing}' | \\
-//       bcftools filter -Oz --mode=+x --soft-filter="high_heterozygosity" --include '(COUNT(GT="het")/N_SAMPLES <= 0.10)' |\\
-//       bcftools view -Oz -o WI.COMPLETE-SOFT-FILTER.vcf.gz
-
-//       tabix -p vcf WI.COMPLETE-SOFT-FILTER.vcf.gz
-//       bcftools stats --verbose WI.COMPLETE-SOFT-FILTER.vcf.gz > WI.COMPLETE-SOFT-FILTER.stats.txt
-//     """
-// }
-
-// cohort_complete_soft_filter_vcf
-//   .into{soft_filtered_vcf_to_hard;
-//         soft_filtered_vcf_impute;
-//         soft_filter_vcf_strain;
-//         soft_filter_vcf_isotype_list;
-//         soft_filter_vcf_mod_tracks;
-//         soft_filter_vcf_tsv
-//       }
 
 /*==============================================
 ~ ~ ~ > *   Apply Hard Filters on VCF  * < ~ ~ ~
 ==============================================*/
 
-// process generate_hard_vcf {
+process hard_filter {
 
-//     cpus 20
+    conda "bcftools=1.9 vcflib=1.0.0_rc3"
 
-//     publishDir "${params.out}/variation", mode: 'copy'
+    publishDir "${params.out}/variation", mode: 'copy'
 
-//     input:
-//         set file(softvcf), file(softvcfindex) from soft_filtered_vcf_to_hard
+    input:
+        tuple path(vcf), path(vcf_index)
 
-//     output:
-//         set file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi") into hard_vcf
-//         set val("hard"), file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi") into hard_vcf_summary
-//         set val("hard"), file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi") into hard_sample_summary
-//         file("WI.${date}.hard-filter.stats.txt") into hard_filter_stats
+    output:
+        set file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi")
+        set val("hard"), file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi")
+        set val("hard"), file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi")
+        file("WI.${date}.hard-filter.stats.txt")
 
 
-//     """
-//         # Generate hard-filtered VCF
-//         function generate_hard_filter {
-//             bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${softvcf} |\\
-//             bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
-//             bcftools filter -O u --include 'F_MISSING  <= ${params.missing}' |\\
-//             bcftools filter -O u --include '(COUNT(GT="het")/N_SAMPLES <= 0.10)' |\\
-//             bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
-//             vcffixup - | \\
-//             bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
-//         }
+    """
+        function cleanup {
+            # cleanup files on completion
+            rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
+        }
+        trap cleanup EXIT
+        # Generate hard-filtered VCF
+        function generate_hard_filter {
+            bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
+            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
+            bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
+            bcftools filter -O u --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.het_max}' |\\
+            bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
+            vcffixup - | \\
+            bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
+        }
 
-//         export -f generate_hard_filter
+        export -f generate_hard_filter
 
-//         parallel --verbose generate_hard_filter {} ::: I II III IV V X MtDNA
+        parallel --verbose generate_hard_filter {} ::: ${contigs}
 
-//         bcftools concat -O z I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz > WI.${date}.hard-filter.vcf.gz
-        
-//         tabix -p vcf WI.${date}.hard-filter.vcf.gz
+        awk '{ print \$0 ".g.vcf.gz" }' ${contigs} > contig_set.tsv
+        bcftools concat  -O z --file-list contig_set.tsv > WI.${date}.hard-filter.vcf.gz
 
-//         bcftools stats --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
-
-//         # Remove extra files
-//         rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
-//     """
-// }
+        bcftools index WI.${date}.hard-filter.vcf.gz
+        bcftools index --tbi WI.${date}.hard-filter.vcf.gz
+        bcftools stats --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
+    """
+}
 
 /*==============================================
 ~ ~ ~ > *   Apply Hard Filters on VCF  * < ~ ~ ~
