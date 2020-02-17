@@ -22,7 +22,7 @@ params.debug = false
 params.email = ""
 params.reference = "${workflow.projectDir}/WS245/WS245.fa.gz"
 params.annotation_reference = "WS263"
-params.annotation_gff = "${workflow.projectDir}/genome/PRJNA13758_WS274/c_elegans.PRJNA13758.WS274.annotations.sorted.gff3.gz"
+params.annotation_gff = "${workflow.projectDir}/genome/PRJNA13758_WS274/Caenorhabditis_elegans.WBcel235.99.gff3.gz"
 reference_uncompressed = file(params.reference.replace(".gz", ""), checkIfExists: true)
 parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk", checkIfExists: true)
 
@@ -116,49 +116,6 @@ if (workflow.profile == "") {
 
 strains = params.strains ? params.strains.split(",") : false
 
-process summary {
-    // Generates a summary of the run for the release directory.
-    
-    executor 'local'
-
-    publishDir "${params.output}", mode: 'copy'
-    
-    input:
-        val(run)
-
-    output:
-        path("sample_sheet.tsv")
-        path("summary.txt")
-        path("software_versions.txt")
-
-    """
-        echo '''${log_summary()}''' > summary.txt
-        fd "\\.nf\$" ${workflow.projectDir} --exclude 'work' --exec awk -f ${parse_conda_software} > software_versions.txt
-        cat ${params.sample_sheet} > sample_sheet.tsv
-    """
-
-}
-
-/*=========================================
-~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
-=========================================*/
-
-process get_contigs {
-
-    label 'sm'
-
-    input:
-        tuple strain, ref_strain, path(bam), path(bai)
-
-    output:
-        path("contigs.txt")
-
-    """
-        samtools idxstats ${bam} | cut -f 1 | grep -v '*' > contigs.txt
-    """
-
-}
-
 // Read sample sheet
 sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
                        .ifEmpty { exit 1, "sample sheet not found" }
@@ -201,7 +158,56 @@ workflow {
     vcfs = annotate_vcf.out.anno_vcf.collect().map { [it] }.combine(get_contigs.out)
     vcfs | concatenate_vcf
     concatenate_vcf.out.vcf | soft_filter
-    soft_filter.out.soft_filter_vcf | hard_filter
+    soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
+
+    // MultiQC Report
+    soft_filter.out.soft_vcf_stats.concat(
+        hard_filter.out.hard_vcf_stats
+    ).collect().view() | multiqc_report
+
+}
+
+
+process summary {
+    // Generates a summary of the run for the release directory.
+    
+    executor 'local'
+
+    publishDir "${params.output}", mode: 'copy'
+    
+    input:
+        val(run)
+
+    output:
+        path("sample_sheet.tsv")
+        path("summary.txt")
+        path("software_versions.txt")
+
+    """
+        echo '''${log_summary()}''' > summary.txt
+        fd "\\.nf\$" ${workflow.projectDir} --exclude 'work' --exec awk -f ${parse_conda_software} > software_versions.txt
+        cat ${params.sample_sheet} > sample_sheet.tsv
+    """
+
+}
+
+/*=========================================
+~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
+=========================================*/
+
+process get_contigs {
+
+    label 'sm'
+
+    input:
+        tuple strain, ref_strain, path(bam), path(bai)
+
+    output:
+        path("contigs.txt")
+
+    """
+        samtools idxstats ${bam} | cut -f 1 | grep -v '*' > contigs.txt
+    """
 
 }
 
@@ -342,6 +348,8 @@ process genotype_cohort_gvcf_db {
 process annotate_vcf {
 
     label 'lg' 
+
+    publishDir "${params.output}/variation", mode:'copy', pattern: "*.csv"
     
     tag { contig }
 
@@ -353,15 +361,15 @@ process annotate_vcf {
 
     output:
         tuple path("${contig}.annotated.vcf.gz"), path("${contig}.annotated.vcf.gz.tbi"), emit: 'anno_vcf'
-        path "snpeff_out.csv", emit: 'snpeff_out'
+        path "WI.${date}.snpeff.csv", emit: 'snpeff_out'
 
 
     """
-      bcftools view --threads=${task.cpus-1} --regions ${contig} ${contig}.vcf.gz | \\
-      bcftools csq -O v --fasta-ref ${reference} \\
-                     --gff-annot ${annotation_gff} \\
+      bcftools view --threads=${task.cpus-1} ${contig}.vcf.gz | \\
+      bcftools csq -O v --fasta-ref ${params.reference} \\
+                     --gff-annot ${file(params.annotation_gff, checkIfExists: true)} \\
                      --phase a | \\
-      snpEff eff -csvStats snpeff_out.csv \\
+      snpEff eff -csvStats WI.${date}.snpeff.csv \\
                  -no-downstream \\
                  -no-intergenic \\
                  -no-upstream \\
@@ -398,15 +406,6 @@ process concatenate_vcf {
     """
 }
 
-// annotated_concatenated_vcf
-//   .into{ann_vcf_to_soft_filter;
-//         ann_vcf_to_hard_filter;
-//         ann_vcf_to_vqsr;
-//         ann_vcf_to_recal;
-//         ann_vcf_to_cnn_train;
-//         ann_vcf_to_cnn_apply;}
-
-
 /*===========================================
 ~ ~ ~ > *   Apply SNV Soft Filters  * < ~ ~ ~
 ===========================================*/
@@ -425,7 +424,7 @@ process soft_filter {
     output:
         tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
         path "WI.${date}.soft-filter.vcf.gz.tbi"
-        path "WI.${date}.soft-filter.stats.txt", emit: 'soft_stats'
+        path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
 
     script:
         os='uname'.execute().text.strip() == "Darwin" ? "macos" : "linux"
@@ -459,7 +458,6 @@ process soft_filter {
     """
 }
 
-
 /*==============================================
 ~ ~ ~ > *   Apply Hard Filters on VCF  * < ~ ~ ~
 ==============================================*/
@@ -468,16 +466,15 @@ process hard_filter {
 
     conda "bcftools=1.9 vcflib=1.0.0_rc3"
 
-    publishDir "${params.out}/variation", mode: 'copy'
+    publishDir "${params.output}/variation", mode: 'copy'
 
     input:
-        tuple path(vcf), path(vcf_index)
+        tuple path(vcf), path(vcf_index), path(contigs)
 
     output:
-        set file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi")
-        set val("hard"), file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi")
-        set val("hard"), file("WI.${date}.hard-filter.vcf.gz"), file("WI.${date}.hard-filter.vcf.gz.tbi")
-        file("WI.${date}.hard-filter.stats.txt")
+        tuple path("WI.${date}.hard-filter.vcf.gz"), path("WI.${date}.hard-filter.vcf.gz.csi")
+        path "WI.${date}.hard-filter.vcf.gz.tbi"
+        path "WI.${date}.hard-filter.stats.txt", emit: 'hard_vcf_stats'
 
 
     """
@@ -485,13 +482,12 @@ process hard_filter {
             # cleanup files on completion
             rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
         }
-        trap cleanup EXIT
+        #trap cleanup EXIT
         # Generate hard-filtered VCF
         function generate_hard_filter {
             bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
             bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
             bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
-            bcftools filter -O u --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.het_max}' |\\
             bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
             vcffixup - | \\
             bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
@@ -499,9 +495,9 @@ process hard_filter {
 
         export -f generate_hard_filter
 
-        parallel --verbose generate_hard_filter {} ::: ${contigs}
+        parallel --verbose generate_hard_filter :::: ${contigs}
 
-        awk '{ print \$0 ".g.vcf.gz" }' ${contigs} > contig_set.tsv
+        awk '{ print \$0 ".vcf.gz" }' ${contigs} > contig_set.tsv
         bcftools concat  -O z --file-list contig_set.tsv > WI.${date}.hard-filter.vcf.gz
 
         bcftools index WI.${date}.hard-filter.vcf.gz
@@ -510,10 +506,25 @@ process hard_filter {
     """
 }
 
-/*==============================================
-~ ~ ~ > *   Apply Hard Filters on VCF  * < ~ ~ ~
-==============================================*/
 
+process multiqc_report {
+
+    conda "multiqc=1.8"
+
+    publishDir "${params.output}/report", mode: 'copy'
+
+    input:
+        path("*")
+
+    output:
+        file("multiqc_data/*.json")
+        file("multiqc.html")
+
+    """
+        multiqc -k json --filename multiqc.html .
+    """
+
+}
 
 // process imputation {
 
