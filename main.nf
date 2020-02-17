@@ -78,6 +78,7 @@ out += """
     output                Release Directory          ${params.output}
     sample_sheet          sample sheet               ${params.sample_sheet}
     bamdir                bam directory              ${params.bamdir}
+    reference             Reference Genome           ${params.reference}
     username                                         ${"whoami".execute().in.text}
 
     Nextflow Run
@@ -160,11 +161,19 @@ workflow {
     concatenate_vcf.out.vcf | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
+    // concordance (hard filter)
+    hard_filter.out.vcf | calculate_gtcheck
+
     // Generate Strain-level TSV and VCFs
     soft_filter.out.soft_filter_vcf | strain_list
-    strain_list.out.splitText()
+    strain_set = strain_list.out.splitText()
                    .map { it.trim() }
-                   .combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv_vcf
+
+    strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv_vcf
+    
+    // Somalier
+    hard_filter.out.vcf | somalier_extract
+    somalier_extract.out.collect().view() | somalier_relate
 
     // Tajima BED File
     hard_filter.out.vcf | tajima_bed
@@ -563,6 +572,61 @@ process generate_strain_tsv_vcf {
 
 }
 
+process somalier_extract {
+
+    input:
+        tuple path(vcf), file(vcf_index)
+
+    output:
+        path("*.somalier")
+
+    container 'brentp/somalier:dev'
+
+    """
+        somalier extract --sites ${vcf} -f ${params.reference} ${vcf}
+    """
+
+}
+
+process somalier_relate {
+    
+    publishDir "${params.output}/somalier", mode: "copy"
+
+    input:
+        path("*.somalier")
+
+    output:
+        path("somalier.pairs.tsv")
+        path("somalier.html")
+        path("somalier.pairs.tsv")
+        path("somalier.samples.tsv")
+
+    container 'brentp/somalier:dev'
+
+    """
+        somalier relate *.somalier
+    """
+
+}
+
+
+process calculate_gtcheck {
+
+    publishDir "${params.output}/concordance", mode: 'copy'
+
+    input:
+        tuple path(vcf), path(vcf_index)
+
+    output:
+        path("gtcheck.${date}.tsv")
+
+    """
+        {
+            echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj";
+            bcftools gtcheck -H -G 1 ${vcf} | egrep '^CN' | cut -f 2-6;
+        } > gtcheck.${date}.tsv
+    """
+}
 
 process tajima_bed {
 
