@@ -1,0 +1,14 @@
+report.html*
+.nextflow.log*
+.nextflow
+bam_debug
+work/*
+Alignment*/
+pipeline_info/*
+release*/
+.DS_Store
+test_data/*
+snpeff_data/*
+WS245/*
+bin/ad_dp*
+.nextflow*
