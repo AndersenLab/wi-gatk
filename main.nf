@@ -175,9 +175,6 @@ workflow {
     hard_filter.out.vcf | somalier_extract
     somalier_extract.out.collect().view() | somalier_relate
 
-    // Tajima BED File
-    hard_filter.out.vcf | tajima_bed
-
     // MultiQC Report
     soft_filter.out.soft_vcf_stats.concat(
         hard_filter.out.hard_vcf_stats,
@@ -627,25 +624,6 @@ process calculate_gtcheck {
         } > gtcheck.${date}.tsv
     """
 }
-
-process tajima_bed {
-
-    conda "vcfkit=0.1.6"
-
-    publishDir "${params.output}/popgen", mode: 'copy'
-
-    input:
-        tuple path(vcf), path(vcf_index)
-    output:
-        set file("WI.${date}.tajima.bed.gz"), file("WI.${date}.tajima.bed.gz.tbi")
-
-    """
-        vk tajima --no-header 100000 10000 ${vcf} | bgzip > WI.${date}.tajima.bed.gz
-        tabix WI.${date}.tajima.bed.gz
-    """
-
-}
-
 
 process multiqc_report {
 
