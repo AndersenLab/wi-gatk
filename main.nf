@@ -161,9 +161,6 @@ workflow {
     concatenate_vcf.out.vcf | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
-    // concordance (hard filter)
-    hard_filter.out.vcf | calculate_gtcheck
-
     // Generate Strain-level TSV and VCFs
     soft_filter.out.soft_filter_vcf | strain_list
     strain_set = strain_list.out.splitText()
@@ -171,9 +168,13 @@ workflow {
 
     strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv_vcf
     
+    // Extract SNPeff severity tracks
+    mod_tracks = Channel.from(["LOW", "MODERATE", "HIGH", "MODIFIER"])
+    soft_filter.out.soft_filter_vcf.spread(mod_tracks) | generate_severity_tracks
+
     // Somalier
     hard_filter.out.vcf | somalier_extract
-    somalier_extract.out.collect().view() | somalier_relate
+    somalier_extract.out.collect() | somalier_relate
 
     // MultiQC Report
     soft_filter.out.soft_vcf_stats.concat(
@@ -606,22 +607,37 @@ process somalier_relate {
 
 }
 
+process generate_severity_tracks {
+    /*
+        The severity tracks are bedfiles with annotations for
+        LOW
+        MODERATE
+        HIGH
+        MODIFIER
+        variants as annotated with SNPEff
 
-process calculate_gtcheck {
+        They are used on the CeNDR browser.
+    */
 
-    publishDir "${params.output}/concordance", mode: 'copy'
+    publishDir "${params.output}/tracks", mode: 'copy'
+
+    tag { severity }
 
     input:
-        tuple path(vcf), path(vcf_index)
-
+        tuple path("in.vcf.gz"), path("in.vcf.gz.csi"), val(severity)
     output:
-        path("gtcheck.${date}.tsv")
+        set file("${date}.${severity}.bed.gz"), file("${date}.${severity}.bed.gz.tbi")
 
     """
-        {
-            echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj";
-            bcftools gtcheck -H -G 1 ${vcf} | egrep '^CN' | cut -f 2-6;
-        } > gtcheck.${date}.tsv
+        bcftools view --apply-filters PASS in.vcf.gz | \
+        grep ${severity} | \
+        awk '\$0 !~ "^#" { print \$1 "\\t" (\$2 - 1) "\\t" (\$2)  "\\t" \$1 ":" \$2 "\\t0\\t+"  "\\t" \$2 - 1 "\\t" \$2 "\\t0\\t1\\t1\\t0" }' | \\
+        bgzip  > ${date}.${severity}.bed.gz
+        tabix -p bed ${date}.${severity}.bed.gz
+        fsize=\$(gzcat ${date}.${severity}.bed.gz | wc -c)
+        if [ \${fsize} -lt 2000 ]; then
+            exit 1
+        fi;
     """
 }
 
