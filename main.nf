@@ -215,7 +215,7 @@ process get_contigs {
 
 process call_variants_individual {
 
-    label 'lg'
+    label 'md'
 
     tag { "${strain}:${region}" }
 
@@ -228,7 +228,7 @@ process call_variants_individual {
         tuple strain, path("${region}.g.vcf.gz")
 
     """
-        gatk HaplotypeCaller --java-options "-Xmx${task.cpus}g -Xms1g" \\
+        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
             --emit-ref-confidence GVCF \\
             --max-genotype-count 3000 \\
             --max-alternate-alleles 100 \\
@@ -295,7 +295,7 @@ process concat_strain_gvcfs {
         tuple val(contig), file("${contig}.db")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus}" \\
             GenomicsDBImport \\
             --genomicsdb-workspace-path ${contig}.db \\
             --batch-size 16 \\
@@ -323,7 +323,7 @@ process genotype_cohort_gvcf_db {
         tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.gz.tbi")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g -XX:ConcGCThreads=${task.cpus}" \\
             GenotypeGVCFs \\
             -R ${reference_uncompressed} \\
             -V gendb://${contig}.db \\
@@ -425,7 +425,7 @@ process soft_filter {
 
 
     """
-        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g -XX:ConcGCThreads=${task.cpus}" \\
             VariantFiltration \\
             -R ${reference_uncompressed} \\
             --variant ${vcf} \\
@@ -437,8 +437,8 @@ process soft_filter {
             -O ad_dp.filtered.vcf.gz
 
         # Apply high missing and high heterozygosity filters
-        bcftools filter --soft-filter='high_missing' --mode +x --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
-        bcftools filter --soft-filter='high_heterozygosity' --mode +x --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
+        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode +x --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
+        bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode +x --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz
         bcftools index --tbi WI.${date}.soft-filter.vcf.gz
@@ -453,6 +453,7 @@ process soft_filter {
 
 process hard_filter {
 
+    label 'lg'
     conda "bcftools=1.9 vcflib=1.0.0_rc3"
 
     publishDir "${params.output}/variation", mode: 'copy'
