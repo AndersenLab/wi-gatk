@@ -230,8 +230,6 @@ process call_variants_individual {
     """
         gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
             --emit-ref-confidence GVCF \\
-            --max-genotype-count 3000 \\
-            --max-alternate-alleles 100 \\
             --annotation DepthPerAlleleBySample \\
             --annotation Coverage \\
             --annotation GenotypeSummaries \\
