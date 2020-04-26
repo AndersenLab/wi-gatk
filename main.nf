@@ -386,7 +386,6 @@ process concatenate_vcf {
     label 'lg'
 
     conda 'bcftools=1.9'
-    publishDir "${params.output}/variation", mode: 'copy'
 
     input:
         tuple path("*"), path("contigs.txt")
@@ -420,6 +419,7 @@ process soft_filter {
         tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
         path "WI.${date}.soft-filter.vcf.gz.tbi"
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
+        path "WI.${date}.soft-filter.filter_stats.txt"
 
 
     """
@@ -448,7 +448,10 @@ process soft_filter {
         bcftools index WI.${date}.soft-filter.vcf.gz
         bcftools index --tbi WI.${date}.soft-filter.vcf.gz
         bcftools stats --threads ${task.cpus} \\
-                        --verbose  WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
+                       -s- --verbose WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
+
+        bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.filter_stats.txt
+
     """
 }
 
@@ -483,7 +486,7 @@ process hard_filter {
 
         bcftools index WI.${date}.hard-filter.vcf.gz
         bcftools index --tbi WI.${date}.hard-filter.vcf.gz
-        bcftools stats --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
+        bcftools stats -s- --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
     """
 }
 
