@@ -444,8 +444,8 @@ process soft_filter {
 
 
         # Apply high missing and high heterozygosity filters
-        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode +x --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered_no_call.vcf.gz |\\
-        bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode +x --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
+        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered_no_call.vcf.gz |\\
+        bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode + --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz
         bcftools index --tbi WI.${date}.soft-filter.vcf.gz
