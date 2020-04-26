@@ -436,8 +436,15 @@ process soft_filter {
             --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
             -O ad_dp.filtered.vcf.gz
 
+        # change genotype that did not pass DP filter to .
+        gatk SelectVariants \\
+            -V ad_dp.filtered.vcf.gz \\
+            --set-filtered-gt-to-nocall \\
+            -O ad_dp.filtered_no_call.vcf.gz
+
+
         # Apply high missing and high heterozygosity filters
-        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode +x --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
+        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode +x --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered_no_call.vcf.gz |\\
         bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode +x --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz
@@ -471,7 +478,6 @@ process hard_filter {
 
         # Generate hard-filtered VCF
         bcftools view -m2 -M2 --trim-alt-alleles -O u ${vcf} |\\
-        bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
         bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
         bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
         vcffixup - | \\
