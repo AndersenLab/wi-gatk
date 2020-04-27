@@ -20,33 +20,23 @@ assert System.getenv("NXF_VER") == "20.01.0-rc1"
 date = new Date().format( 'yyyyMMdd' )
 params.debug = false
 params.email = ""
-params.reference = "${workflow.projectDir}/WS245/WS245.fa.gz"
-params.annotation_reference = "WS263"
-params.annotation_gff = "${workflow.projectDir}/genome/PRJNA13758_WS274/Caenorhabditis_elegans.WBcel235.99.gff3.gz"
+params.reference = ""
+params.annotation_reference = ""  // this is genome version for snpeff
+params.annotation_gff = ""
 reference_uncompressed = file(params.reference.replace(".gz", ""), checkIfExists: true)
 parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk", checkIfExists: true)
+params.help = false
 
 // Debug
 if (params.debug.toString() == "true") {
     params.output = "release-${date}-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
-    params.bamdir = "${workflow.projectDir}/test_data"
 } else {
     // The strain sheet that used for 'production' is located in the root of the git repo
-    params.output = "alignment-${date}"
-    params.sample_sheet = "sample_sheet.tsv"
+    params.output = "WI-${date}"
+    params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
 }
 
-/*
-    Config
-*/
-
-// defaults
-params.help                   = false
-params.bamdir                 = null
-params.out_base               = null
-params.gff                    = null
-params.strains                = false
 
 // Variant Filtering
 params.min_depth = 5
@@ -58,8 +48,6 @@ params.fisherstrand = 50.0
 params.high_missing = 0.95
 params.high_heterozygosity = 0.10
 
-
-params.out                    = "${date}-${params.out_base}"
 
 def log_summary() {
 
@@ -115,18 +103,15 @@ if (workflow.profile == "") {
     exit 1
 }
 
-strains = params.strains ? params.strains.split(",") : false
 
 // Read sample sheet
 sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
                        .ifEmpty { exit 1, "sample sheet not found" }
                        .splitCsv(header:true, sep: "\t")
                       .map { row -> [row.strain,
-                                     row.reference_strain == "TRUE",
-                                     file("${params.bamdir}/${row.strain}.bam", checkExists: true),
-                                     file("${params.bamdir}/${row.strain}.bam.bai", checkExists: true)] }
-                      .distinct()
-                      .filter { params.strains ? it[0] in strains : true }
+                                     file("${row.bam}", checkExists: true),
+                                     file("${row.bai}", checkExists: true)] }
+
 
 workflow {
 
@@ -141,7 +126,7 @@ workflow {
     sample_sheet.combine(contigs) | call_variants_individual
 
     call_variants_individual.out.groupTuple()
-                                .map { strain, ref_strain, vcf -> [strain, ref_strain[0], vcf]}
+                                .map { strain, vcf -> [strain, vcf]}
                                 .combine(get_contigs.out) | \
                                 concat_strain_gvcfs
     
@@ -161,9 +146,6 @@ workflow {
     concatenate_vcf.out.vcf | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
-    // concordance (hard filter)
-    hard_filter.out.vcf | calculate_gtcheck
-
     // Generate Strain-level TSV and VCFs
     soft_filter.out.soft_filter_vcf | strain_list
     strain_set = strain_list.out.splitText()
@@ -171,12 +153,9 @@ workflow {
 
     strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv_vcf
     
-    // Somalier
-    hard_filter.out.vcf | somalier_extract
-    somalier_extract.out.collect().view() | somalier_relate
-
-    // Tajima BED File
-    hard_filter.out.vcf | tajima_bed
+    // Extract SNPeff severity tracks
+    mod_tracks = Channel.from(["LOW", "MODERATE", "HIGH", "MODIFIER"])
+    soft_filter.out.soft_filter_vcf.spread(mod_tracks) | generate_severity_tracks
 
     // MultiQC Report
     soft_filter.out.soft_vcf_stats.concat(
@@ -219,7 +198,7 @@ process get_contigs {
     label 'sm'
 
     input:
-        tuple strain, ref_strain, path(bam), path(bai)
+        tuple strain, path(bam), path(bai)
 
     output:
         path("contigs.txt")
@@ -236,23 +215,21 @@ process get_contigs {
 
 process call_variants_individual {
 
-    label 'lg'
+    label 'md'
 
     tag { "${strain}:${region}" }
 
     conda "gatk4=4.1.4.0"
 
     input:
-        tuple strain, ref_strain, path(bam), path(bai), val(region)
+        tuple strain, path(bam), path(bai), val(region)
 
     output:
-        tuple strain, ref_strain, path("${region}.g.vcf.gz")
+        tuple strain, path("${region}.g.vcf.gz")
 
     """
-        gatk HaplotypeCaller --java-options "-Xmx${task.cpus}g -Xms1g" \\
+        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
             --emit-ref-confidence GVCF \\
-            --max-genotype-count 3000 \\
-            --max-alternate-alleles 100 \\
             --annotation DepthPerAlleleBySample \\
             --annotation Coverage \\
             --annotation GenotypeSummaries \\
@@ -290,7 +267,7 @@ process concat_strain_gvcfs {
     conda "bcftools=1.9"
 
     input:
-        tuple strain, ref_strain, path("*"), path(contigs)
+        tuple strain, path("*"), path(contigs)
 
     output:
         tuple path("${strain}.g.vcf.gz"), path("${strain}.g.vcf.gz.tbi")
@@ -316,7 +293,7 @@ process concat_strain_gvcfs {
         tuple val(contig), file("${contig}.db")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus}" \\
             GenomicsDBImport \\
             --genomicsdb-workspace-path ${contig}.db \\
             --batch-size 16 \\
@@ -344,7 +321,7 @@ process genotype_cohort_gvcf_db {
         tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.gz.tbi")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g -XX:ConcGCThreads=${task.cpus}" \\
             GenotypeGVCFs \\
             -R ${reference_uncompressed} \\
             -V gendb://${contig}.db \\
@@ -383,7 +360,7 @@ process annotate_vcf {
 
     """
       bcftools view --threads=${task.cpus-1} ${contig}.vcf.gz | \\
-      bcftools csq -O v --fasta-ref ${params.reference} \\
+      bcftools csq -O v --fasta-ref ${reference_uncompressed} \\
                      --gff-annot ${file(params.annotation_gff, checkIfExists: true)} \\
                      --phase a | \\
       snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
@@ -442,16 +419,11 @@ process soft_filter {
         tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
         path "WI.${date}.soft-filter.vcf.gz.tbi"
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
+        path "WI.${date}.soft-filter.filter_stats.txt"
 
-    script:
-        os='uname'.execute().text.strip() == "Darwin" ? "macos" : "linux"
+
     """
-        function cleanup {
-            rm ad_dp.filtered.vcf.gz
-        }
-        trap cleanup EXIT
-
-        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g" \\
+        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g -XX:ConcGCThreads=${task.cpus}" \\
             VariantFiltration \\
             -R ${reference_uncompressed} \\
             --variant ${vcf} \\
@@ -460,18 +432,26 @@ process soft_filter {
             --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
             --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
             --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
-            -O /dev/stdout | \\
-            ad_dp_${os}
-        # ad_dp outputs a file called 'ad_dp.filtered.vcf.gz'
-  
+            -O ad_dp.filtered.vcf.gz
+
+        # change genotype that did not pass DP filter to .
+        gatk SelectVariants \\
+            -V ad_dp.filtered.vcf.gz \\
+            --set-filtered-gt-to-nocall \\
+            -O ad_dp.filtered_no_call.vcf.gz
+
+
         # Apply high missing and high heterozygosity filters
-        bcftools filter --soft-filter='high_missing' --mode +x --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
-        bcftools filter --soft-filter='high_heterozygosity' --mode +x --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
+        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered_no_call.vcf.gz |\\
+        bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode + --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz
         bcftools index --tbi WI.${date}.soft-filter.vcf.gz
         bcftools stats --threads ${task.cpus} \\
-                        --verbose  WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
+                       -s- --verbose WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
+
+        bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.filter_stats.txt
+
     """
 }
 
@@ -481,6 +461,7 @@ process soft_filter {
 
 process hard_filter {
 
+    label 'lg'
     conda "bcftools=1.9 vcflib=1.0.0_rc3"
 
     publishDir "${params.output}/variation", mode: 'copy'
@@ -495,31 +476,17 @@ process hard_filter {
 
 
     """
-        function cleanup {
-            # cleanup files on completion
-            rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
-        }
-        #trap cleanup EXIT
+
         # Generate hard-filtered VCF
-        function generate_hard_filter {
-            bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
-            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
-            bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
-            bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
-            vcffixup - | \\
-            bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
-        }
-
-        export -f generate_hard_filter
-
-        parallel --verbose generate_hard_filter :::: ${contigs}
-
-        awk '{ print \$0 ".vcf.gz" }' ${contigs} > contig_set.tsv
-        bcftools concat  -O z --file-list contig_set.tsv > WI.${date}.hard-filter.vcf.gz
+        bcftools view -m2 -M2 --trim-alt-alleles -O u ${vcf} |\\
+        bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
+        bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
+        vcffixup - | \\
+        bcftools view -O z --trim-alt-alleles > WI.${date}.hard-filter.vcf.gz
 
         bcftools index WI.${date}.hard-filter.vcf.gz
         bcftools index --tbi WI.${date}.hard-filter.vcf.gz
-        bcftools stats --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
+        bcftools stats -s- --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
     """
 }
 
@@ -572,80 +539,41 @@ process generate_strain_tsv_vcf {
 
 }
 
-process somalier_extract {
+
+
+process generate_severity_tracks {
+    /*
+        The severity tracks are bedfiles with annotations for
+        LOW
+        MODERATE
+        HIGH
+        MODIFIER
+        variants as annotated with SNPEff
+
+        They are used on the CeNDR browser.
+    */
+
+    publishDir "${params.output}/tracks", mode: 'copy'
+
+    tag { severity }
 
     input:
-        tuple path(vcf), file(vcf_index)
-
+        tuple path("in.vcf.gz"), path("in.vcf.gz.csi"), val(severity)
     output:
-        path("*.somalier")
-
-    container 'brentp/somalier:dev'
+        set file("${date}.${severity}.bed.gz"), file("${date}.${severity}.bed.gz.tbi")
 
     """
-        somalier extract --sites ${vcf} -f ${params.reference} ${vcf}
-    """
-
-}
-
-process somalier_relate {
-    
-    publishDir "${params.output}/somalier", mode: "copy"
-
-    input:
-        path("*.somalier")
-
-    output:
-        path("somalier.pairs.tsv")
-        path("somalier.html")
-        path("somalier.pairs.tsv")
-        path("somalier.samples.tsv")
-
-    container 'brentp/somalier:dev'
-
-    """
-        somalier relate *.somalier
-    """
-
-}
-
-
-process calculate_gtcheck {
-
-    publishDir "${params.output}/concordance", mode: 'copy'
-
-    input:
-        tuple path(vcf), path(vcf_index)
-
-    output:
-        path("gtcheck.${date}.tsv")
-
-    """
-        {
-            echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj";
-            bcftools gtcheck -H -G 1 ${vcf} | egrep '^CN' | cut -f 2-6;
-        } > gtcheck.${date}.tsv
+        bcftools view --apply-filters PASS in.vcf.gz | \
+        grep ${severity} | \
+        awk '\$0 !~ "^#" { print \$1 "\\t" (\$2 - 1) "\\t" (\$2)  "\\t" \$1 ":" \$2 "\\t0\\t+"  "\\t" \$2 - 1 "\\t" \$2 "\\t0\\t1\\t1\\t0" }' | \\
+        bgzip  > ${date}.${severity}.bed.gz
+        tabix -p bed ${date}.${severity}.bed.gz
+        fsize=\$(zcat ${date}.${severity}.bed.gz | wc -c)
+        if [ \${fsize} -lt 2000 ]; then
+            exit 1
+        fi;
     """
 }
-
-process tajima_bed {
-
-    conda "vcfkit=0.1.6"
-
-    publishDir "${params.output}/popgen", mode: 'copy'
-
-    input:
-        tuple path(vcf), path(vcf_index)
-    output:
-        set file("WI.${date}.tajima.bed.gz"), file("WI.${date}.tajima.bed.gz.tbi")
-
-    """
-        vk tajima --no-header 100000 10000 ${vcf} | bgzip > WI.${date}.tajima.bed.gz
-        tabix WI.${date}.tajima.bed.gz
-    """
-
-}
-
 
 process multiqc_report {
 
