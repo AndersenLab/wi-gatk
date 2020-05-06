@@ -432,14 +432,14 @@ process soft_filter {
             --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
             --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
             --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
-            -O ad_dp.filtered.vcf.gz
+            -O /dev/stdout | \\
+            ad_dp_${os}
 
         # change genotype that did not pass DP filter to .
         gatk SelectVariants \\
             -V ad_dp.filtered.vcf.gz \\
             --set-filtered-gt-to-nocall \\
             -O ad_dp.filtered_no_call.vcf.gz
-
 
         # Apply high missing and high heterozygosity filters
         bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered_no_call.vcf.gz |\\
