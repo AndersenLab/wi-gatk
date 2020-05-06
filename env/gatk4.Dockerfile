@@ -7,13 +7,15 @@ RUN conda config --add channels defaults && \
     conda config --add channels conda-forge
 RUN conda create -n gatk4 \
                         bioconda::gatk4=4.1.7.0 \
-                        bioconda::bcftools=1.9 \
+                        bioconda::bcftools=1.10 \
                         snpeff=4.3.1t \
                         vcflib=1.0.0_rc3 \
                         multiqc=1.8 \
                         parallel=20200322 \
     && conda clean -a
 ENV PATH /opt/conda/envs/gatk4/bin:$PATH
+# Use libhts.so from conda
+ENV LD_LIBRARY_PATH /opt/conda/lib
 RUN conda env export --name gatk4 > gatk4.yml
 
 # Add ad_dp (pre-built for linux)
