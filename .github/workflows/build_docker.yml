@@ -26,7 +26,7 @@ jobs:
 
     - name: Build AD_DP
       run: |
-        nimble install hts
+        nimble install -y hts
         nim c -d:release tools/ad_dp.nim && chmod +x
 
     - name: Build and Publish
