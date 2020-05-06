@@ -13,3 +13,5 @@ WS245/*
 bin/ad_dp*
 .nextflow*
 genomes/*
+ad_dp
+het_polarization

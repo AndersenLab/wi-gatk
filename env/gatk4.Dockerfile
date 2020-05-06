@@ -11,7 +11,12 @@ RUN conda create -n gatk4 \
                         snpeff=4.3.1t \
                         vcflib=1.0.0_rc3 \
                         multiqc=1.8 \
+                        parallel=20200322 \
     && conda clean -a
 ENV PATH /opt/conda/envs/gatk4/bin:$PATH
 RUN conda env export --name gatk4 > gatk4.yml
+
+# Add ad_dp (pre-built for linux)
+ADD ad_dp /usr/local/bin
+
 LABEL Name="gatk4" Author="Daniel Cook"

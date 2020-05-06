@@ -24,7 +24,6 @@ params.reference = ""
 params.annotation_reference = ""  // this is the genome version used for snpeff
 params.annotation_gff = ""
 reference_uncompressed = file(params.reference.replace(".gz", ""), checkIfExists: true)
-parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk", checkIfExists: true)
 params.help = false
 
 // Debug
@@ -179,11 +178,9 @@ process summary {
     output:
         path("sample_sheet.tsv")
         path("summary.txt")
-        path("software_versions.txt")
 
     """
         echo '''${log_summary()}''' > summary.txt
-        fd "\\.nf\$" ${workflow.projectDir} --exclude 'work' --exec awk -f ${parse_conda_software} > software_versions.txt
         cat ${params.sample_sheet} > sample_sheet.tsv
     """
 
@@ -218,8 +215,6 @@ process call_variants_individual {
     label 'md'
 
     tag { "${strain}:${region}" }
-
-    conda "gatk4=4.1.4.0"
 
     input:
         tuple strain, path(bam), path(bai), val(region)
@@ -264,7 +259,6 @@ process concat_strain_gvcfs {
 
     label 'sm'
     tag { "${strain}" }
-    conda "bcftools=1.9"
 
     input:
         tuple strain, path("*"), path(contigs)
@@ -283,8 +277,6 @@ process concat_strain_gvcfs {
 
     tag { "${contig}" }
     label 'lg'
-
-    conda "gatk4=4.1.4.0"
 
     input:
         tuple path(vcfs), contig, path(sample_map)
@@ -311,8 +303,6 @@ process genotype_cohort_gvcf_db {
 
     tag { "${contig}" }
     label 'lg'
-
-    conda "bcftools=1.9 gatk4=4.1.4.0"
 
     input:
         tuple val(contig), file("${contig}.db")
@@ -348,7 +338,6 @@ process annotate_vcf {
     tag { contig }
 
     cache 'lenient'
-    conda "bcftools=1.9 snpeff=4.3.1t"
 
     input:
         tuple val(contig), file("${contig}.vcf.gz"), file("${contig}.vcf.gz.tbi")
@@ -385,8 +374,6 @@ process concatenate_vcf {
 
     label 'lg'
 
-    conda 'bcftools=1.9'
-
     input:
         tuple path("*"), path("contigs.txt")
 
@@ -410,8 +397,6 @@ process soft_filter {
 
     label 'lg'
 
-    conda "bcftools=1.9 gatk4=4.1.4.0"
-
     input:
         tuple path(vcf), path(vcf_index)
 
@@ -420,9 +405,16 @@ process soft_filter {
         path "WI.${date}.soft-filter.vcf.gz.tbi"
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
         path "WI.${date}.soft-filter.filter_stats.txt"
-
-
+    
+    /*
+        ad_dp is a binary that adds the ad_dp filter. Do not remove.
+    */
     """
+        function cleanup {
+            rm ad_dp.filtered.vcf.gz
+        }
+        trap cleanup EXIT
+
         gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g \\
             VariantFiltration \\
             -R ${reference_uncompressed} \\
@@ -433,7 +425,7 @@ process soft_filter {
             --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
             --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
             -O /dev/stdout | \\
-            ad_dp_${os}
+            ad_dp
 
         # change genotype that did not pass DP filter to .
         gatk SelectVariants \\
@@ -462,7 +454,6 @@ process soft_filter {
 process hard_filter {
 
     label 'lg'
-    conda "bcftools=1.9 vcflib=1.0.0_rc3"
 
     publishDir "${params.output}/variation", mode: 'copy'
 
@@ -476,13 +467,27 @@ process hard_filter {
 
 
     """
-
+        function cleanup {
+            # cleanup files on completion
+            rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
+        }
+        #trap cleanup EXIT
         # Generate hard-filtered VCF
-        bcftools view -m2 -M2 --trim-alt-alleles -O u ${vcf} |\\
-        bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
-        bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
-        vcffixup - | \\
-        bcftools view -O z --trim-alt-alleles > WI.${date}.hard-filter.vcf.gz
+        function generate_hard_filter {
+            bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
+            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
+            bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
+            bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
+            vcffixup - | \\
+            bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
+        }
+
+        export -f generate_hard_filter
+
+        parallel --verbose generate_hard_filter :::: ${contigs}
+
+        awk '{ print \$0 ".vcf.gz" }' ${contigs} > contig_set.tsv
+        bcftools concat  -O z --file-list contig_set.tsv > WI.${date}.hard-filter.vcf.gz
 
         bcftools index WI.${date}.hard-filter.vcf.gz
         bcftools index --tbi WI.${date}.hard-filter.vcf.gz
@@ -539,8 +544,6 @@ process generate_strain_tsv_vcf {
 
 }
 
-
-
 process generate_severity_tracks {
     /*
         The severity tracks are bedfiles with annotations for
@@ -576,8 +579,6 @@ process generate_severity_tracks {
 }
 
 process multiqc_report {
-
-    conda "multiqc=1.8"
 
     publishDir "${params.output}/report", mode: 'copy'
 

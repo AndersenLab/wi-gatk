@@ -17,6 +17,14 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
+    # Build Tools
+    - uses: jiro4989/setup-nim-action@v1.0.2
+      with:
+          nim-version: 1.0.6
+
+    - name: Build AD_DP
+      run: nim c -d:release tools/ad_dp.nim && chmod +x
+
     - name: Build and Publish
       uses: elgohr/Publish-Docker-Github-Action@master
       with:
