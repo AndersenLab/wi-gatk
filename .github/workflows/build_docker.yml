@@ -27,7 +27,7 @@ jobs:
     - name: Build AD_DP
       run: |
         nimble install -y hts
-        nim c -d:release tools/ad_dp.nim && chmod +x
+        nim c -d:release env/ad_dp.nim && chmod +x
 
     - name: Build and Publish
       uses: elgohr/Publish-Docker-Github-Action@master
