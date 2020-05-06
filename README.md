@@ -1,3 +1,5 @@
+![Build Docker (env/gatk4.Dockerfile)](https://github.com/AndersenLab/wi-gatk/workflows/Build%20Docker%20(env/gatk4.Dockerfile)/badge.svg)
+
 # wi-gatk
 
 The new GATK-based pipeline for wild isolate C. elegans strains
