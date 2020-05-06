@@ -15,7 +15,7 @@ RUN conda create -n gatk4 \
     && conda clean -a
 ENV PATH /opt/conda/envs/gatk4/bin:$PATH
 # Use libhts.so from conda
-ENV LD_LIBRARY_PATH /opt/conda/lib
+ENV LD_LIBRARY_PATH /opt/conda/envs/gatk4/lib
 RUN conda env export --name gatk4 > gatk4.yml
 
 # Add ad_dp (pre-built for linux)
