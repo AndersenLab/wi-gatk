@@ -1,15 +1,15 @@
-strain	bam	bai
-AB1	/projects/b1059/projects/Dan/wi-gatk/test_data/AB1.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/AB1.bam.bai
-ECA243	/projects/b1059/projects/Dan/wi-gatk/test_data/ECA243.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/ECA243.bam.bai
-ECA718	/projects/b1059/projects/Dan/wi-gatk/test_data/ECA718.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/ECA718.bam.bai
-ED3046	/projects/b1059/projects/Dan/wi-gatk/test_data/ED3046.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/ED3046.bam.bai
-JU1511	/projects/b1059/projects/Dan/wi-gatk/test_data/JU1511.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/JU1511.bam.bai
-JU2234	/projects/b1059/projects/Dan/wi-gatk/test_data/JU2234.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/JU2234.bam.bai
-JU3167	/projects/b1059/projects/Dan/wi-gatk/test_data/JU3167.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/JU3167.bam.bai
-LSJ1	/projects/b1059/projects/Dan/wi-gatk/test_data/LSJ1.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/LSJ1.bam.bai
-MY2338	/projects/b1059/projects/Dan/wi-gatk/test_data/MY2338.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/MY2338.bam.bai
-MY2693	/projects/b1059/projects/Dan/wi-gatk/test_data/MY2693.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/MY2693.bam.bai
-NIC262	/projects/b1059/projects/Dan/wi-gatk/test_data/NIC262.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/NIC262.bam.bai
-PB303	/projects/b1059/projects/Dan/wi-gatk/test_data/PB303.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/PB303.bam.bai
-QX1213	/projects/b1059/projects/Dan/wi-gatk/test_data/QX1213.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/QX1213.bam.bai
-WN2065	/projects/b1059/projects/Dan/wi-gatk/test_data/WN2065.bam	/projects/b1059/projects/Dan/wi-gatk/test_data/WN2065.bam.bai
+strain	bam
+AB1	test_data/AB1.bam
+ECA243	test_data/ECA243.bam
+ECA718	test_data/ECA718.bam
+ED3046	test_data/ED3046.bam
+JU1511	test_data/JU1511.bam
+JU2234	test_data/JU2234.bam
+JU3167	test_data/JU3167.bam
+LSJ1	test_data/LSJ1.bam
+MY2338	test_data/MY2338.bam
+MY2693	test_data/MY2693.bam
+NIC262	test_data/NIC262.bam
+PB303	test_data/PB303.bam
+QX1213	test_data/QX1213.bam
+WN2065	test_data/WN2065.bam

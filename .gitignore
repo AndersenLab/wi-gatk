@@ -12,3 +12,4 @@ snpeff_data/*
 WS245/*
 bin/ad_dp*
 .nextflow*
+genomes/*

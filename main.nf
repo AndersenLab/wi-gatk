@@ -21,7 +21,7 @@ date = new Date().format( 'yyyyMMdd' )
 params.debug = false
 params.email = ""
 params.reference = ""
-params.annotation_reference = ""  // this is genome version for snpeff
+params.annotation_reference = ""  // this is the genome version used for snpeff
 params.annotation_gff = ""
 reference_uncompressed = file(params.reference.replace(".gz", ""), checkIfExists: true)
 parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk", checkIfExists: true)
@@ -108,9 +108,9 @@ if (workflow.profile == "") {
 sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
                        .ifEmpty { exit 1, "sample sheet not found" }
                        .splitCsv(header:true, sep: "\t")
-                      .map { row -> [row.strain,
+                       .map { row -> [row.strain,
                                      file("${row.bam}", checkExists: true),
-                                     file("${row.bai}", checkExists: true)] }
+                                     file("${row.bam}.bai", checkExists: true)] }
 
 
 workflow {
@@ -228,7 +228,7 @@ process call_variants_individual {
         tuple strain, path("${region}.g.vcf.gz")
 
     """
-        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             --emit-ref-confidence GVCF \\
             --annotation DepthPerAlleleBySample \\
             --annotation Coverage \\
@@ -423,7 +423,7 @@ process soft_filter {
 
 
     """
-        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g \\
             VariantFiltration \\
             -R ${reference_uncompressed} \\
             --variant ${vcf} \\
