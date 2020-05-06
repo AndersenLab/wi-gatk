@@ -5,10 +5,12 @@ on:
   push:
     paths:
     - 'env/gatk4.Dockerfile'
+    - 'env/ad_dp.nim'
     - '.github/workflows/build_docker.yml'
   pull_request:
     paths:
     - 'env/gatk4.Dockerfile'
+    - 'env/ad_dp.nim'
     - '.github/workflows/build_docker.yml'
 
 jobs:
@@ -23,7 +25,9 @@ jobs:
           nim-version: 1.0.6
 
     - name: Build AD_DP
-      run: nim c -d:release tools/ad_dp.nim && chmod +x
+      run: |
+        nimble install hts
+        nim c -d:release tools/ad_dp.nim && chmod +x
 
     - name: Build and Publish
       uses: elgohr/Publish-Docker-Github-Action@master
