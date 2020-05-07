@@ -74,6 +74,7 @@ out += """
     run name                                         ${workflow.runName}
     scriptID                                         ${workflow.scriptId}
     git commit                                       ${workflow.commitId}
+    container                                        ${workflow.container}
         
     Variant Filters      
     ---------------        
@@ -285,7 +286,7 @@ process concat_strain_gvcfs {
         tuple val(contig), file("${contig}.db")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             GenomicsDBImport \\
             --genomicsdb-workspace-path ${contig}.db \\
             --batch-size 16 \\
@@ -311,7 +312,7 @@ process genotype_cohort_gvcf_db {
         tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.gz.tbi")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             GenotypeGVCFs \\
             -R ${reference_uncompressed} \\
             -V gendb://${contig}.db \\
@@ -319,7 +320,6 @@ process genotype_cohort_gvcf_db {
             -G AS_StandardAnnotation \\
             -G StandardHCAnnotation \\
             -L ${contig} \\
-            --use-new-qual-calculator \\
            -O ${contig}_cohort.vcf
 
         bcftools view -O z ${contig}_cohort.vcf > ${contig}_cohort.vcf.gz
@@ -415,7 +415,7 @@ process soft_filter {
         }
         trap cleanup EXIT
 
-        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g \\
+        gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             VariantFiltration \\
             -R ${reference_uncompressed} \\
             --variant ${vcf} \\

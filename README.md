@@ -7,8 +7,22 @@ The new GATK-based pipeline for wild isolate C. elegans strains
 
 # Running Locally
 
-1. Fetch and prepare the reference genome by running `scripts/setup_genome.sh`, adjusting the `$PROJECT` and `$BUILD` as appropriate. This script will create a `genomes` folder, download a reference file, generate a BWA index, and create an unzipped version.
+1. Fetch and prepare the reference genome by running `scripts/setup_genome.sh`, adjusting the `$PROJECT` and `$BUILD` as appropriate. This script will create a `genomes` folder, download a reference file, generate a BWA index, and create an unzipped version. Software requirements:
 
-# Software Used
+* `picard`
+* `samtools`
+* `bwa`
+* `wget`
 
-* [Somalier](https://github.com/brentp/somalier)
+2. Install [nextflow](http://www.nextflow.io)
+3. Install docker and pull the container ([`andersenlab/gatk4`](https://www.dockerhub.com/andersenlab/gatk4))
+
+The repo includes test data and is configured to use a design file.
+
+```bash
+nextflow run main.nf -resume -profile local --debug
+```
+
+__Tip__
+
+* Use [`ctop`](https://github.com/bcicen/ctop) to monitor docker containers locally.

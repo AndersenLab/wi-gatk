@@ -19,3 +19,11 @@ wget "ftp://ftp.wormbase.org/pub/wormbase/species/c_elegans/${PROJECT}/sequence/
 
 bwa index c_elegans.${PROJECT}.${RELEASE}.genomic.fa.gz
 gunzip -kfc c_elegans.${PROJECT}.${RELEASE}.genomic.fa.gz > c_elegans.${PROJECT}.${RELEASE}.genomic.fa
+
+# Generate fai index
+samtools faidx c_elegans.${PROJECT}.${RELEASE}.genomic.fa
+
+# Create .dict file
+picard CreateSequenceDictionary \ 
+        R=c_elegans.${PROJECT}.${RELEASE}.genomic.fa \ 
+        O=c_elegans.${PROJECT}.${RELEASE}.genomic.dict
