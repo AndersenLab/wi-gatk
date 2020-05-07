@@ -8,6 +8,7 @@ RUN conda config --add channels defaults && \
 RUN conda create -n gatk4 \
                         bioconda::gatk4=4.1.7.0 \
                         bioconda::bcftools=1.10 \
+                        bioconda::samtools=1.10 \
                         snpeff=4.3.1t \
                         vcflib=1.0.0_rc3 \
                         multiqc=1.8 \
