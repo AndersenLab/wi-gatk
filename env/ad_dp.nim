@@ -42,6 +42,7 @@ var v:VCF
 doAssert(open(v, "-"))
 doAssert(open(wtr, "ad_dp.filtered.vcf.gz", mode="w"))
 wtr.header = v.header
+discard wtr.header.add_format(ID = "FT", Number = "1", Type = "String", Description = "FILTER for genotype")
 doAssert(wtr.write_header())
 
 var n_samples = len(v.samples)

@@ -16,6 +16,7 @@ The new GATK-based pipeline for wild isolate C. elegans strains
 
 2. Install [nextflow](http://www.nextflow.io)
 3. Install docker and pull the container ([`andersenlab/gatk4`](https://www.dockerhub.com/andersenlab/gatk4))
+4. Run `scripts/download_genome.sh` to fetch a reference genome.
 
 The repo includes test data and is configured to use a design file.
 

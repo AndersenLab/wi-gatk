@@ -19,16 +19,16 @@ assert System.getenv("NXF_VER") == "20.01.0-rc1"
 
 date = new Date().format( 'yyyyMMdd' )
 params.debug = false
-params.email = ""
-params.reference = ""
-params.annotation_reference = ""  // this is the genome version used for snpeff
-params.annotation_gff = ""
-reference_uncompressed = file(params.reference.replace(".gz", ""), checkIfExists: true)
 params.help = false
+params.bam_location = "" // Use this to specify the directory for bams
+
+// Check that reference exists
+params.reference = ""
+reference = file(params.reference, checkIfExists: true)
 
 // Debug
 if (params.debug.toString() == "true") {
-    params.output = "release-${date}-debug"
+    params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
 } else {
     // The strain sheet that used for 'production' is located in the root of the git repo
@@ -60,32 +60,36 @@ def log_summary() {
 
 out += """
 
-    parameters            description                Set/Default
-    ==========            ===========                ========================
-    output                Release Directory          ${params.output}
-    sample_sheet          sample sheet               ${params.sample_sheet}
-    bamdir                bam directory              ${params.bamdir}
-    reference             Reference Genome           ${params.reference}
-    username                                         ${"whoami".execute().in.text}
+    parameters               description                Set/Default
+    ==========               ===========                ========================
+    output                   Release Directory          ${params.output}
+    sample_sheet             sample sheet               ${params.sample_sheet}
+    reference                Reference Genome           ${reference}
+    username                                            ${"whoami".execute().in.text}
 
     Nextflow Run
     ---------------
     ${workflow.commandLine}
-    run name                                         ${workflow.runName}
-    scriptID                                         ${workflow.scriptId}
-    git commit                                       ${workflow.commitId}
-    container                                        ${workflow.container}
-        
-    Variant Filters      
-    ---------------        
-    min_depth             Minimum variant depth      ${params.min_depth}
-    qual                  Variant QUAL score         ${params.qual}
-    ad_dp                 Good ALT reads / depth     ${params.dv_dp}
-    strand_odds_ratio     SOR_strand_odds_ratio      ${params.strand_odds_ratio} 
-    quality_by_depth      QD_quality_by_depth        ${params.quality_by_depth} 
-    fisherstrand          FS_fisher_strand           ${params.fisherstrand}
-    missing_max           % missing genotypes        ${params.high_missing}
-    heterozygosity_max    % max heterozygosity       ${params.high_heterozygosity}
+    run name                                            ${workflow.runName}
+    scriptID                                            ${workflow.scriptId}
+    git commit                                          ${workflow.commitId}
+    container                                           ${workflow.container}
+
+    Reference Genome
+    ---------------
+    reference_base          location of ref genomes     ${params.reference_base}
+    species/project/build                               ${params.species} / ${params.project} / ${params.ws_build}
+
+    Variant Filters         
+    ---------------           
+    min_depth                Minimum variant depth      ${params.min_depth}
+    qual                     Variant QUAL score         ${params.qual}
+    ad_dp                    Good ALT reads / depth     ${params.dv_dp}
+    strand_odds_ratio        SOR_strand_odds_ratio      ${params.strand_odds_ratio} 
+    quality_by_depth         QD_quality_by_depth        ${params.quality_by_depth} 
+    fisherstrand             FS_fisher_strand           ${params.fisherstrand}
+    missing_max              % missing genotypes        ${params.high_missing}
+    heterozygosity_max       % max heterozygosity       ${params.high_heterozygosity}
 
 ---
 """
@@ -108,7 +112,12 @@ if (workflow.profile == "") {
 sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
                        .ifEmpty { exit 1, "sample sheet not found" }
                        .splitCsv(header:true, sep: "\t")
-                       .map { row -> [row.strain,
+                       .map { row -> 
+                                    // Optionally allow user to specify a bam location
+                                    if (params.bam_location != "") {
+                                        row.bam = "${params.bam_location}/${row.bam}"
+                                    }           
+                                    [row.strain,
                                      file("${row.bam}", checkExists: true),
                                      file("${row.bam}.bai", checkExists: true)] }
 
@@ -241,7 +250,7 @@ process call_variants_individual {
             --annotation-group StandardAnnotation \\
             --annotation-group AS_StandardAnnotation \\
             --annotation-group StandardHCAnnotation \\
-            -R ${reference_uncompressed} \\
+            -R ${reference} \\
             -I ${bam} \\
             -L ${region} \\
             -O ${region}.g.vcf   
@@ -314,7 +323,7 @@ process genotype_cohort_gvcf_db {
     """
         gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             GenotypeGVCFs \\
-            -R ${reference_uncompressed} \\
+            -R ${reference} \\
             -V gendb://${contig}.db \\
             -G StandardAnnotation \\
             -G AS_StandardAnnotation \\
@@ -349,17 +358,17 @@ process annotate_vcf {
 
     """
       bcftools view --threads=${task.cpus-1} ${contig}.vcf.gz | \\
-      bcftools csq -O v --fasta-ref ${reference_uncompressed} \\
-                     --gff-annot ${file(params.annotation_gff, checkIfExists: true)} \\
+      bcftools csq -O v --fasta-ref ${reference} \\
+                     --gff-annot ${file(params.csq_gff, checkIfExists: true)} \\
                      --phase a | \\
       snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
                  -no-downstream \\
                  -no-intergenic \\
                  -no-upstream \\
                  -nodownload \\
-      -dataDir ${workflow.projectDir}/snpeff_data \\
-      -config ${workflow.projectDir}/snpeff_data/snpEff.config \\
-      ${params.annotation_reference} | \\
+      -dataDir ${params.snpeff_dir} \\
+      -config ${params.snpeff_dir}/snpEff.config \\
+      ${params.ws_build} | \\
       bcftools view --threads=${task.cpus-1} -O z > ${contig}.annotated.vcf.gz
       bcftools index --tbi ${contig}.annotated.vcf.gz
     """
@@ -417,7 +426,7 @@ process soft_filter {
 
         gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             VariantFiltration \\
-            -R ${reference_uncompressed} \\
+            -R ${reference} \\
             --variant ${vcf} \\
             --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "DP_min_depth" \\
             --filter-expression "QUAL < ${params.qual}"                --filter-name "QUAL_quality" \\
