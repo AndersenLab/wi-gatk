@@ -6,11 +6,13 @@ on:
     paths:
     - 'env/gatk4.Dockerfile'
     - 'env/ad_dp.nim'
+    - 'env/het_polarization.nim'
     - '.github/workflows/build_docker.yml'
   pull_request:
     paths:
     - 'env/gatk4.Dockerfile'
     - 'env/ad_dp.nim'
+    - 'env/het_polarization.nim'
     - '.github/workflows/build_docker.yml'
 
 jobs:
