@@ -22,7 +22,7 @@ const version = "0.0.1"
 var wtr:VCF
 var v:VCF
 doAssert(open(v, "/dev/stdin"))
-doAssert(open(wtr, "/dev/stdout", mode="w"))
+doAssert(open(wtr, "/dev/stdout", mode="wb"))
 wtr.header = v.header
 discard wtr.header.add_format(ID = "HP", Number = "1", Type = "String", Description = fmt"Flag used to mark whether a variant was polarized [AA/BB]; Version {version}")
 discard wtr.header.add_format(ID = "HP_VAL", Number = "1", Type = "Float", Description = fmt"-log10(GL-ref/GL-alt); > 2 ALT Polarization; < 2 REF polarization; Version {version}")
@@ -69,7 +69,6 @@ for record in v:
         # Only operatate on heterozygous variants
         if geno.is_heterozygous():
             pl_set = pl[ idx * 3 .. (idx * 3) + 2]#.applyIt ( if it < 0: 0 else: it  )
-            echo pl_set
             if pl_set[0].between(-1000, 1000) and pl_set[2].between(-1000, 1000):
                 log_set = pl_set.mapIt( rev_phred_to_p(it) )
                 var log_score = math.log10(log_set[0] / log_set[2])
