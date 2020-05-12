@@ -310,6 +310,7 @@ process concat_strain_gvcfs {
 ==================================*/
 
 process genotype_cohort_gvcf_db {
+    // Heterozygous polarization is also performed here.
 
     tag { "${contig}" }
     label 'lg'
@@ -331,7 +332,8 @@ process genotype_cohort_gvcf_db {
             -L ${contig} \\
            -O ${contig}_cohort.vcf
 
-        bcftools view -O z ${contig}_cohort.vcf > ${contig}_cohort.vcf.gz
+        bcftools view -O z ${contig}_cohort.vcf | \
+        het_polarization > ${contig}_cohort.vcf.gz
         bcftools index --tbi ${contig}_cohort.vcf.gz
     """
 }
@@ -417,6 +419,7 @@ process soft_filter {
     
     /*
         ad_dp is a binary that adds the ad_dp filter. Do not remove.
+        het_polarization polarizes het-variants to REF or ALT
     */
     """
         function cleanup {
@@ -433,6 +436,7 @@ process soft_filter {
             --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
             --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
             --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
+            --filter-expression "isHet == 1"                           --filter-name "is_het" \\
             -O /dev/stdout | \\
             ad_dp
 

@@ -29,6 +29,11 @@ jobs:
         nimble install -y hts
         nim c -d:release env/ad_dp.nim && chmod +x env/ad_dp
 
+    - name: Build Het polarization
+      run: |
+        nimble install -y hts
+        nim c -d:release env/het_polarization.nim && chmod +x env/het_polarization
+
     - name: Build and Publish
       uses: elgohr/Publish-Docker-Github-Action@master
       with:
