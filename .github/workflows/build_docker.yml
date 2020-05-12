@@ -45,3 +45,4 @@ jobs:
         dockerfile: gatk4.Dockerfile
         workdir: "env"
         tags: "latest"
+        cache: true
