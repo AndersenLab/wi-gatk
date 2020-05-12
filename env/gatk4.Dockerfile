@@ -21,5 +21,6 @@ RUN conda env export --name gatk4 > gatk4.yml
 
 # Add ad_dp (pre-built for linux)
 ADD ad_dp /usr/local/bin
+ADD het_polarization /usr/local/bin
 
 LABEL Name="gatk4" Author="Daniel Cook"
