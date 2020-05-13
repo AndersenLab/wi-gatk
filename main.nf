@@ -319,7 +319,7 @@ process genotype_cohort_gvcf_db {
         tuple val(contig), file("${contig}.db")
 
     output:
-        tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.gz.tbi")
+        tuple val(contig), file("${contig}_cohort.bcf"), file("${contig}_cohort.bcf.csi")
 
     """
         gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
@@ -333,8 +333,8 @@ process genotype_cohort_gvcf_db {
            -O ${contig}_cohort.vcf
 
         bcftools view -O z ${contig}_cohort.vcf | \
-        het_polarization > ${contig}_cohort.vcf.gz
-        bcftools index --tbi ${contig}_cohort.vcf.gz
+        het_polarization > ${contig}_cohort.bcf
+        bcftools index ${contig}_cohort.bcf
     """
 }
 
@@ -351,7 +351,7 @@ process annotate_vcf {
     cache 'lenient'
 
     input:
-        tuple val(contig), file("${contig}.vcf.gz"), file("${contig}.vcf.gz.tbi")
+        tuple val(contig), file("${contig}.bcf"), file("${contig}.bcf.csi")
 
     output:
         tuple path("${contig}.annotated.vcf.gz"), path("${contig}.annotated.vcf.gz.tbi"), emit: 'anno_vcf'
@@ -359,10 +359,7 @@ process annotate_vcf {
 
 
     """
-      bcftools view --threads=${task.cpus-1} ${contig}.vcf.gz | \\
-      bcftools csq -O v --fasta-ref ${reference} \\
-                     --gff-annot ${file(params.csq_gff, checkIfExists: true)} \\
-                     --phase a | \\
+      bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
       snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
                  -no-downstream \\
                  -no-intergenic \\
@@ -370,7 +367,7 @@ process annotate_vcf {
                  -nodownload \\
       -dataDir ${params.snpeff_dir} \\
       -config ${params.snpeff_dir}/snpEff.config \\
-      ${params.ws_build} | \\
+      ${params.snpeff_reference} | \\
       bcftools view --threads=${task.cpus-1} -O z > ${contig}.annotated.vcf.gz
       bcftools index --tbi ${contig}.annotated.vcf.gz
     """
@@ -436,18 +433,15 @@ process soft_filter {
             --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
             --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
             --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
-            --filter-expression "isHet == 1"                           --filter-name "is_het" \\
+            --genotype-filter-expression "isHet == 1"                  --genotype-filter-name "is_het" \\
             -O /dev/stdout | \\
             ad_dp
-
-        # change genotype that did not pass DP filter to .
-        gatk SelectVariants \\
-            -V ad_dp.filtered.vcf.gz \\
-            --set-filtered-gt-to-nocall \\
-            -O ad_dp.filtered_no_call.vcf.gz
-
+        
+        # ad_dp filter
+        bcftools index --tbi ad_dp.filtered.vcf.gz
+        
         # Apply high missing and high heterozygosity filters
-        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered_no_call.vcf.gz |\\
+        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
         bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode + --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz
@@ -465,6 +459,12 @@ process soft_filter {
 ==============================================*/
 
 process hard_filter {
+    /*
+        !! Important
+        CSQ Annotations take place after hard filtering because they create a haplotype-based prediction.
+        THerefore, it is essential that poor-quality variants are removed.
+    */
+
 
     label 'lg'
 
@@ -484,7 +484,7 @@ process hard_filter {
             # cleanup files on completion
             rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
         }
-        #trap cleanup EXIT
+        trap cleanup EXIT
         # Generate hard-filtered VCF
         function generate_hard_filter {
             bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
@@ -499,8 +499,16 @@ process hard_filter {
 
         parallel --verbose generate_hard_filter :::: ${contigs}
 
+        # Remove transposons from GFF3 as they throw errors with CSQ
+        gzip -dc ${file(params.csq_gff, checkIfExists: true)} | grep -v 'transposon' | bgzip > csq.gff.gz
+        tabix -p gff csq.gff.gz
+
+
         awk '{ print \$0 ".vcf.gz" }' ${contigs} > contig_set.tsv
-        bcftools concat  -O z --file-list contig_set.tsv > WI.${date}.hard-filter.vcf.gz
+        bcftools concat  -O u --file-list contig_set.tsv | \\
+        bcftools csq -O z --fasta-ref ${reference} \\
+                     --gff-annot csq.gff.gz \\
+                     --phase a > WI.${date}.hard-filter.vcf.gz
 
         bcftools index WI.${date}.hard-filter.vcf.gz
         bcftools index --tbi WI.${date}.hard-filter.vcf.gz
