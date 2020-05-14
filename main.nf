@@ -19,17 +19,16 @@ assert System.getenv("NXF_VER") == "20.01.0-rc1"
 
 date = new Date().format( 'yyyyMMdd' )
 params.debug = false
-params.email = ""
-params.reference = ""
-params.annotation_reference = ""  // this is genome version for snpeff
-params.annotation_gff = ""
-reference_uncompressed = file(params.reference.replace(".gz", ""), checkIfExists: true)
-parse_conda_software = file("${workflow.projectDir}/scripts/parse_conda_software.awk", checkIfExists: true)
 params.help = false
+params.bam_location = "" // Use this to specify the directory for bams
+
+// Check that reference exists
+params.reference = ""
+reference = file(params.reference, checkIfExists: true)
 
 // Debug
 if (params.debug.toString() == "true") {
-    params.output = "release-${date}-debug"
+    params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
 } else {
     // The strain sheet that used for 'production' is located in the root of the git repo
@@ -61,31 +60,36 @@ def log_summary() {
 
 out += """
 
-    parameters            description                Set/Default
-    ==========            ===========                ========================
-    output                Release Directory          ${params.output}
-    sample_sheet          sample sheet               ${params.sample_sheet}
-    bamdir                bam directory              ${params.bamdir}
-    reference             Reference Genome           ${params.reference}
-    username                                         ${"whoami".execute().in.text}
+    parameters               description                Set/Default
+    ==========               ===========                ========================
+    output                   Release Directory          ${params.output}
+    sample_sheet             sample sheet               ${params.sample_sheet}
+    reference                Reference Genome           ${reference}
+    username                                            ${"whoami".execute().in.text}
 
     Nextflow Run
     ---------------
     ${workflow.commandLine}
-    run name                                         ${workflow.runName}
-    scriptID                                         ${workflow.scriptId}
-    git commit                                       ${workflow.commitId}
-        
-    Variant Filters      
-    ---------------        
-    min_depth             Minimum variant depth      ${params.min_depth}
-    qual                  Variant QUAL score         ${params.qual}
-    ad_dp                 Good ALT reads / depth     ${params.dv_dp}
-    strand_odds_ratio     SOR_strand_odds_ratio      ${params.strand_odds_ratio} 
-    quality_by_depth      QD_quality_by_depth        ${params.quality_by_depth} 
-    fisherstrand          FS_fisher_strand           ${params.fisherstrand}
-    missing_max           % missing genotypes        ${params.high_missing}
-    heterozygosity_max    % max heterozygosity       ${params.high_heterozygosity}
+    run name                                            ${workflow.runName}
+    scriptID                                            ${workflow.scriptId}
+    git commit                                          ${workflow.commitId}
+    container                                           ${workflow.container}
+
+    Reference Genome
+    ---------------
+    reference_base          location of ref genomes     ${params.reference_base}
+    species/project/build                               ${params.species} / ${params.project} / ${params.ws_build}
+
+    Variant Filters         
+    ---------------           
+    min_depth                Minimum variant depth      ${params.min_depth}
+    qual                     Variant QUAL score         ${params.qual}
+    ad_dp                    Good ALT reads / depth     ${params.dv_dp}
+    strand_odds_ratio        SOR_strand_odds_ratio      ${params.strand_odds_ratio} 
+    quality_by_depth         QD_quality_by_depth        ${params.quality_by_depth} 
+    fisherstrand             FS_fisher_strand           ${params.fisherstrand}
+    missing_max              % missing genotypes        ${params.high_missing}
+    heterozygosity_max       % max heterozygosity       ${params.high_heterozygosity}
 
 ---
 """
@@ -108,9 +112,14 @@ if (workflow.profile == "") {
 sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
                        .ifEmpty { exit 1, "sample sheet not found" }
                        .splitCsv(header:true, sep: "\t")
-                      .map { row -> [row.strain,
+                       .map { row -> 
+                                    // Optionally allow user to specify a bam location
+                                    if (params.bam_location != "") {
+                                        row.bam = "${params.bam_location}/${row.bam}"
+                                    }           
+                                    [row.strain,
                                      file("${row.bam}", checkExists: true),
-                                     file("${row.bai}", checkExists: true)] }
+                                     file("${row.bam}.bai", checkExists: true)] }
 
 
 workflow {
@@ -179,11 +188,9 @@ process summary {
     output:
         path("sample_sheet.tsv")
         path("summary.txt")
-        path("software_versions.txt")
 
     """
         echo '''${log_summary()}''' > summary.txt
-        fd "\\.nf\$" ${workflow.projectDir} --exclude 'work' --exec awk -f ${parse_conda_software} > software_versions.txt
         cat ${params.sample_sheet} > sample_sheet.tsv
     """
 
@@ -219,8 +226,6 @@ process call_variants_individual {
 
     tag { "${strain}:${region}" }
 
-    conda "gatk4=4.1.4.0"
-
     input:
         tuple strain, path(bam), path(bai), val(region)
 
@@ -228,7 +233,7 @@ process call_variants_individual {
         tuple strain, path("${region}.g.vcf.gz")
 
     """
-        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             --emit-ref-confidence GVCF \\
             --annotation DepthPerAlleleBySample \\
             --annotation Coverage \\
@@ -245,7 +250,7 @@ process call_variants_individual {
             --annotation-group StandardAnnotation \\
             --annotation-group AS_StandardAnnotation \\
             --annotation-group StandardHCAnnotation \\
-            -R ${reference_uncompressed} \\
+            -R ${reference} \\
             -I ${bam} \\
             -L ${region} \\
             -O ${region}.g.vcf   
@@ -264,7 +269,6 @@ process concat_strain_gvcfs {
 
     label 'sm'
     tag { "${strain}" }
-    conda "bcftools=1.9"
 
     input:
         tuple strain, path("*"), path(contigs)
@@ -284,8 +288,6 @@ process concat_strain_gvcfs {
     tag { "${contig}" }
     label 'lg'
 
-    conda "gatk4=4.1.4.0"
-
     input:
         tuple path(vcfs), contig, path(sample_map)
 
@@ -293,7 +295,7 @@ process concat_strain_gvcfs {
         tuple val(contig), file("${contig}.db")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             GenomicsDBImport \\
             --genomicsdb-workspace-path ${contig}.db \\
             --batch-size 16 \\
@@ -308,32 +310,31 @@ process concat_strain_gvcfs {
 ==================================*/
 
 process genotype_cohort_gvcf_db {
+    // Heterozygous polarization is also performed here.
 
     tag { "${contig}" }
     label 'lg'
-
-    conda "bcftools=1.9 gatk4=4.1.4.0"
 
     input:
         tuple val(contig), file("${contig}.db")
 
     output:
-        tuple val(contig), file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.gz.tbi")
+        tuple val(contig), file("${contig}_cohort.bcf"), file("${contig}_cohort.bcf.csi")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             GenotypeGVCFs \\
-            -R ${reference_uncompressed} \\
+            -R ${reference} \\
             -V gendb://${contig}.db \\
             -G StandardAnnotation \\
             -G AS_StandardAnnotation \\
             -G StandardHCAnnotation \\
             -L ${contig} \\
-            --use-new-qual-calculator \\
            -O ${contig}_cohort.vcf
 
-        bcftools view -O z ${contig}_cohort.vcf > ${contig}_cohort.vcf.gz
-        bcftools index --tbi ${contig}_cohort.vcf.gz
+        bcftools view -O z ${contig}_cohort.vcf | \
+        het_polarization > ${contig}_cohort.bcf
+        bcftools index ${contig}_cohort.bcf
     """
 }
 
@@ -348,10 +349,9 @@ process annotate_vcf {
     tag { contig }
 
     cache 'lenient'
-    conda "bcftools=1.9 snpeff=4.3.1t"
 
     input:
-        tuple val(contig), file("${contig}.vcf.gz"), file("${contig}.vcf.gz.tbi")
+        tuple val(contig), file("${contig}.bcf"), file("${contig}.bcf.csi")
 
     output:
         tuple path("${contig}.annotated.vcf.gz"), path("${contig}.annotated.vcf.gz.tbi"), emit: 'anno_vcf'
@@ -359,18 +359,15 @@ process annotate_vcf {
 
 
     """
-      bcftools view --threads=${task.cpus-1} ${contig}.vcf.gz | \\
-      bcftools csq -O v --fasta-ref ${reference_uncompressed} \\
-                     --gff-annot ${file(params.annotation_gff, checkIfExists: true)} \\
-                     --phase a | \\
+      bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
       snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
                  -no-downstream \\
                  -no-intergenic \\
                  -no-upstream \\
                  -nodownload \\
-      -dataDir ${workflow.projectDir}/snpeff_data \\
-      -config ${workflow.projectDir}/snpeff_data/snpEff.config \\
-      ${params.annotation_reference} | \\
+      -dataDir ${params.snpeff_dir} \\
+      -config ${params.snpeff_dir}/snpEff.config \\
+      ${params.snpeff_reference} | \\
       bcftools view --threads=${task.cpus-1} -O z > ${contig}.annotated.vcf.gz
       bcftools index --tbi ${contig}.annotated.vcf.gz
     """
@@ -384,8 +381,6 @@ process annotate_vcf {
 process concatenate_vcf {
 
     label 'lg'
-
-    conda 'bcftools=1.9'
 
     input:
         tuple path("*"), path("contigs.txt")
@@ -410,8 +405,6 @@ process soft_filter {
 
     label 'lg'
 
-    conda "bcftools=1.9 gatk4=4.1.4.0"
-
     input:
         tuple path(vcf), path(vcf_index)
 
@@ -420,29 +413,35 @@ process soft_filter {
         path "WI.${date}.soft-filter.vcf.gz.tbi"
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
         path "WI.${date}.soft-filter.filter_stats.txt"
-
-
+    
+    /*
+        ad_dp is a binary that adds the ad_dp filter. Do not remove.
+        het_polarization polarizes het-variants to REF or ALT
+    */
     """
-        gatk --java-options "-Xmx${task.memory.toGiga()-1}g -Xms${task.memory.toGiga()-2}g -XX:ConcGCThreads=${task.cpus}" \\
+        function cleanup {
+            rm ad_dp.filtered.vcf.gz
+        }
+        trap cleanup EXIT
+
+        gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             VariantFiltration \\
-            -R ${reference_uncompressed} \\
+            -R ${reference} \\
             --variant ${vcf} \\
             --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "DP_min_depth" \\
             --filter-expression "QUAL < ${params.qual}"                --filter-name "QUAL_quality" \\
             --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
             --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
             --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
-            -O ad_dp.filtered.vcf.gz
-
-        # change genotype that did not pass DP filter to .
-        gatk SelectVariants \\
-            -V ad_dp.filtered.vcf.gz \\
-            --set-filtered-gt-to-nocall \\
-            -O ad_dp.filtered_no_call.vcf.gz
-
-
+            --genotype-filter-expression "isHet == 1"                  --genotype-filter-name "is_het" \\
+            -O /dev/stdout | \\
+            ad_dp
+        
+        # ad_dp filter
+        bcftools index --tbi ad_dp.filtered.vcf.gz
+        
         # Apply high missing and high heterozygosity filters
-        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered_no_call.vcf.gz |\\
+        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
         bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode + --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz
@@ -460,9 +459,14 @@ process soft_filter {
 ==============================================*/
 
 process hard_filter {
+    /*
+        !! Important
+        CSQ Annotations take place after hard filtering because they create a haplotype-based prediction.
+        THerefore, it is essential that poor-quality variants are removed.
+    */
+
 
     label 'lg'
-    conda "bcftools=1.9 vcflib=1.0.0_rc3"
 
     publishDir "${params.output}/variation", mode: 'copy'
 
@@ -476,13 +480,35 @@ process hard_filter {
 
 
     """
-
+        function cleanup {
+            # cleanup files on completion
+            rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
+        }
+        trap cleanup EXIT
         # Generate hard-filtered VCF
-        bcftools view -m2 -M2 --trim-alt-alleles -O u ${vcf} |\\
-        bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
-        bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
-        vcffixup - | \\
-        bcftools view -O z --trim-alt-alleles > WI.${date}.hard-filter.vcf.gz
+        function generate_hard_filter {
+            bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
+            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
+            bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
+            bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
+            vcffixup - | \\
+            bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
+        }
+
+        export -f generate_hard_filter
+
+        parallel --verbose generate_hard_filter :::: ${contigs}
+
+        # Remove transposons from GFF3 as they throw errors with CSQ
+        gzip -dc ${file(params.csq_gff, checkIfExists: true)} | grep -v 'transposon' | bgzip > csq.gff.gz
+        tabix -p gff csq.gff.gz
+
+
+        awk '{ print \$0 ".vcf.gz" }' ${contigs} > contig_set.tsv
+        bcftools concat  -O u --file-list contig_set.tsv | \\
+        bcftools csq -O z --fasta-ref ${reference} \\
+                     --gff-annot csq.gff.gz \\
+                     --phase a > WI.${date}.hard-filter.vcf.gz
 
         bcftools index WI.${date}.hard-filter.vcf.gz
         bcftools index --tbi WI.${date}.hard-filter.vcf.gz
@@ -539,8 +565,6 @@ process generate_strain_tsv_vcf {
 
 }
 
-
-
 process generate_severity_tracks {
     /*
         The severity tracks are bedfiles with annotations for
@@ -576,8 +600,6 @@ process generate_severity_tracks {
 }
 
 process multiqc_report {
-
-    conda "multiqc=1.8"
 
     publishDir "${params.output}/report", mode: 'copy'
 

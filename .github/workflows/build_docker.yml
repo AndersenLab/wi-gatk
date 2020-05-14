@@ -1,0 +1,50 @@
+# Build dockerfile on change
+name: Build Docker (env/gatk4.Dockerfile)
+
+on:
+  push:
+    paths:
+    - 'env/gatk4.Dockerfile'
+    - 'env/ad_dp.nim'
+    - 'env/het_polarization.nim'
+    - '.github/workflows/build_docker.yml'
+  pull_request:
+    paths:
+    - 'env/gatk4.Dockerfile'
+    - 'env/ad_dp.nim'
+    - 'env/het_polarization.nim'
+    - '.github/workflows/build_docker.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    # Build Tools
+    - uses: jiro4989/setup-nim-action@v1.0.2
+      with:
+          nim-version: 1.0.6
+
+    - name: Build AD_DP
+      run: |
+        nimble install -y hts
+        nim c -d:release env/ad_dp.nim && chmod +x env/ad_dp
+
+    - name: Build Het polarization
+      run: |
+        nimble install -y hts
+        nim c -d:release env/het_polarization.nim && chmod +x env/het_polarization
+
+    - name: Build and Publish
+      uses: elgohr/Publish-Docker-Github-Action@master
+      with:
+        name: andersenlab/gatk4
+        tag: "${{ steps.current-time.formattedTime }}"
+        username: ${{ secrets.DOCKER_HUB_USER }}
+        password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+        snapshot: true
+        dockerfile: gatk4.Dockerfile
+        workdir: "env"
+        tags: "latest"
+        cache: true

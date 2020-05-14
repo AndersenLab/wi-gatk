@@ -2,8 +2,11 @@
 # Author: Daniel E. Cook
 # Compile with:
 #
-# nim c -d:release -p:ad_dp_macos ad_dp.nim
+# nim c -d:release ad_dp.nim
 # 
+# This little utility will add a DV/DP filter
+# to the VCF.
+#
 # Previously, we used a DV/DP filter of 0.5,
 # DV = # of high quality bases underlying a variant.
 # DV has since been renamed AD
@@ -14,12 +17,9 @@
 #
 # Changed to:
 # 
-# FORMAT/AD = Allelic Depths
+# FORMAT/AD = Allelic Depths [in GATK]
 #
-import os
 import hts
-import sequtils
-import strformat
 import strutils
 
 # AD/DP DV/DP annotation script
@@ -42,6 +42,7 @@ var v:VCF
 doAssert(open(v, "-"))
 doAssert(open(wtr, "ad_dp.filtered.vcf.gz", mode="w"))
 wtr.header = v.header
+discard wtr.header.add_format(ID = "FT", Number = "1", Type = "String", Description = "FILTER for genotype")
 doAssert(wtr.write_header())
 
 var n_samples = len(v.samples)
@@ -79,7 +80,7 @@ for record in v:
                 else:
                     if ft[sample_index].split(";").find("ad_dp") == -1:
                         ft[sample_index] = "ad_dp;" & ft[sample_index]
-    var r = record.format.set("FT", ft)
+    discard record.format.set("FT", ft)
     doAssert wtr.write_variant(record)
 
 close(v)
