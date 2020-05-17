@@ -296,7 +296,7 @@ process concat_strain_gvcfs {
         tuple val(contig), file("${contig}.db")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus}" \\
             GenomicsDBImport \\
             --genomicsdb-workspace-path ${contig}.db \\
             --batch-size 16 \\
