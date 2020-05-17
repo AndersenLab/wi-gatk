@@ -11,7 +11,7 @@ nextflow.preview.dsl=2
 // Prefix this version when running
 // e.g.
 // NXF_VER=20.01.0-rc1 nextflow run ...
-assert System.getenv("NXF_VER") == "20.01.0-rc1"
+//assert System.getenv("NXF_VER") == "20.01.0-rc1"
 
 /*
     Params
@@ -30,6 +30,7 @@ reference = file(params.reference, checkIfExists: true)
 if (params.debug.toString() == "true") {
     params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
+    params.bam_location = "${workflow.projectDir}" // Use this to specify the directory for bams
 } else {
     // The strain sheet that used for 'production' is located in the root of the git repo
     params.output = "WI-${date}"
@@ -233,7 +234,7 @@ process call_variants_individual {
         tuple strain, path("${region}.g.vcf.gz")
 
     """
-        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
+        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
             --emit-ref-confidence GVCF \\
             --annotation DepthPerAlleleBySample \\
             --annotation Coverage \\
@@ -295,7 +296,7 @@ process concat_strain_gvcfs {
         tuple val(contig), file("${contig}.db")
 
     """
-        gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus}" \\
             GenomicsDBImport \\
             --genomicsdb-workspace-path ${contig}.db \\
             --batch-size 16 \\
