@@ -6,7 +6,7 @@ RUN conda config --add channels defaults && \
     conda config --add channels bioconda && \
     conda config --add channels conda-forge
 RUN conda create -n gatk4 \
-                        bioconda::gatk4=4.1.7.0 \
+                        bioconda::gatk4=4.1.4.0 \
                         bioconda::bcftools=1.10 \
                         bioconda::samtools=1.10 \
                         snpeff=4.3.1t \
