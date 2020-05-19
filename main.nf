@@ -359,8 +359,10 @@ process annotate_vcf {
         path "${contig}.${date}.snpeff.csv", emit: 'snpeff_csv'
 
 
+    // vcffixup recalculates AN/AC for het-polarized sites.
     """
       bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
+      vcffixup - | \\
       snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
                  -no-downstream \\
                  -no-intergenic \\

@@ -83,6 +83,10 @@ for record in v:
                 else:
                     hp[idx] = "AB"
                 hp_val[idx] = fmt"{log_score:<0.3}"
+        else:
+            # No het polarization fields
+            hp[idx] = "."
+            hp_val[idx] = "."
         idx += 1
         # Set
         if hp.filterIt( it != "" ).len > 0:
