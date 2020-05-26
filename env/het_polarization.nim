@@ -35,7 +35,6 @@ proc between(s: int, a: int, b: int): bool =
         return true
     return false
 
-
 proc rev_phred_to_p(phred: int): float =
      return math.pow(10.0, phred.float / -10.0)
 
@@ -68,10 +67,10 @@ for record in v:
     for geno in gt:
         # Only operatate on heterozygous variants
         if geno.is_heterozygous():
-            pl_set = pl[ idx * 3 .. (idx * 3) + 2]#.applyIt ( if it < 0: 0 else: it  )
+            pl_set = pl[ idx * 3 .. (idx * 3) + 2]
             if pl_set[0].between(-1000, 1000) and pl_set[2].between(-1000, 1000):
                 log_set = pl_set.mapIt( rev_phred_to_p(it) )
-                var log_score = math.log10(log_set[0] / log_set[2])
+                var log_score = -math.log10(log_set[0] / log_set[2])
                 if log_score <= -2.0:
                     gts[(idx*2)] = geno[0].value().gtval()
                     gts[(idx*2) + 1] = geno[0].value().gtval()
