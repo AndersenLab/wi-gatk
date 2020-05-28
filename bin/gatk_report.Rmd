@@ -46,14 +46,14 @@ presentation <- theme(axis.text.x = element_text(size=10, face="bold", color="bl
 
 ```{r load}
 
-vcf_date=""
+vcf_date <- ""
 
 stats_soft_filter <- readLines(glue("WI.{vcf_date}.soft-filter.stats.txt"))
-SN_soft = stats_soft_filter[c(grep(pattern = "^SN", x = stats_soft_filter))]
+SN_soft <- stats_soft_filter[c(grep(pattern = "^SN", x = stats_soft_filter))]
 SN_soft_df <- read.table(text = SN_soft, sep = "\t")
 
 stats_hard_filter <- readLines(glue("WI.{vcf_date}.hard-filter.stats.txt"))
-SN_hard = stats_hard_filter[c(grep(pattern = "^SN", x = stats_hard_filter))]
+SN_hard <- stats_hard_filter[c(grep(pattern = "^SN", x = stats_hard_filter))]
 SN_hard_df <- read.table(text = SN_hard, sep = "\t")
 ```
 
@@ -68,39 +68,39 @@ SN_hard_df <- read.table(text = SN_hard, sep = "\t")
 
 
 ```{r, fig.width=8, fig.height=6}
-filter_stats = read.delim(glue("WI.{vcf_date}.soft-filter.filter_stats.txt"), header=FALSE, stringsAsFactors=FALSE) 
+filter_stats <- read.delim(glue("WI.{vcf_date}.soft-filter.filter_stats.txt"), header=FALSE, stringsAsFactors=FALSE) 
 
-names(filter_stats) = c("QUAL","QD","SOR","FS","FILTER")
+names(filter_stats) <- c("QUAL","QD","SOR","FS","FILTER")
 
 filter_stats %<>% mutate( QUAL=as.numeric(QUAL), QD=as.numeric(QD), SOR=as.numeric(SOR), FS=as.numeric(FS))
 
-filter_thresh = data.frame(QUAL = 30,
+filter_thresh <- data.frame(QUAL = 30,
 QD = 5,
 SOR = 5,
 FS=50)
 
-pa = ggplot(filter_stats) + 
+pa <- ggplot(filter_stats) + 
     geom_histogram(aes(x = QUAL), fill = "#A9A9A9") +
     geom_vline(xintercept=filter_thresh[1,"QUAL"], color = "red") +
     xlab("Variant quality score") + ylab("Number of strains") +
     theme_bw() +
     presentation + scale_x_continuous(trans="log2")
 
-pb = ggplot(filter_stats) + 
+pb <- ggplot(filter_stats) + 
     geom_histogram(aes(x = QD), fill = "#A9A9A9") +
     geom_vline(xintercept=filter_thresh[1,"QD"], color = "red") +
     xlab("Quality over depth") + ylab("Number of strains") +
     theme_bw() +
     presentation 
 
-pc = ggplot(filter_stats) + 
+pc <- ggplot(filter_stats) + 
     geom_histogram(aes(x = SOR), fill = "#A9A9A9") +
     geom_vline(xintercept=filter_thresh[1,"SOR"], color = "red") +
     xlab("Strand buas: strand odds ratio") + ylab("Number of strains") +
     theme_bw() +
     presentation 
 
-pd = ggplot(filter_stats) + 
+pd <- ggplot(filter_stats) + 
     geom_histogram(aes(x = FS), fill = "#A9A9A9") +
     geom_vline(xintercept=filter_thresh[1,"FS"], color = "red") +
     xlab("Strand bias: Fisher strand") + ylab("Number of strains") +
@@ -131,20 +131,20 @@ Note total_SNV = nNonRefHom + nHets. Please correct me if this is wrong.
 ```{r per_sample_count_soft_filter}
 # soft filter (before filter)
 # SNV
-PSC_soft = stats_soft_filter[c(grep(pattern = "PSC", x = stats_soft_filter))]
+PSC_soft <- stats_soft_filter[c(grep(pattern = "PSC", x = stats_soft_filter))]
 PSC_soft_df <- read.table(text = PSC_soft, sep = "\t", header = F)
 
-PSC_header = stats_soft_filter[c(grep(pattern = "PSC.*Het", x = stats_soft_filter))]
-split_header=str_replace_all(PSC_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
-names(PSC_soft_df) = split_header[[1]]
+PSC_header <- stats_soft_filter[c(grep(pattern = "PSC.*Het", x = stats_soft_filter))]
+split_header <- str_replace_all(PSC_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
+names(PSC_soft_df) <- split_header[[1]]
 
 # Indel breakdown
-PSI_soft = stats_soft_filter[c(grep(pattern = "PSI", x = stats_soft_filter))]
+PSI_soft <- stats_soft_filter[c(grep(pattern = "PSI", x = stats_soft_filter))]
 PSI_soft_df <- read.table(text = PSI_soft, sep = "\t", header = F)
 
-PSI_header = stats_soft_filter[c(grep(pattern = "PSI.*Het", x = stats_soft_filter))]
-split_header=str_replace_all(PSI_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
-names(PSI_soft_df) = split_header[[1]]
+PSI_header <- stats_soft_filter[c(grep(pattern = "PSI.*Het", x = stats_soft_filter))]
+split_header <- str_replace_all(PSI_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
+names(PSI_soft_df) <- split_header[[1]]
 
 PSI_soft_df %<>% select(sample, nHets) %>% rename(Indel_nHets = nHets) 
 
@@ -157,7 +157,7 @@ DT::datatable(select(PSC_soft_df, sample, total_SNV, nHets, nIndels, Indel_nHets
 
 ```{r plot_SNV_Indel_count_soft, fig.width=5, fig.height=4}
 
-p1 = ggplot(PSC_soft_df) + 
+p1 <- ggplot(PSC_soft_df) + 
     geom_histogram(aes(x = total_SNV, plotly_label=sample), fill = "#A9A9A9") +
     theme_bw() +
     presentation  + xlab("Total SNVs")
@@ -165,7 +165,7 @@ p1 = ggplot(PSC_soft_df) +
 ggplotly(p1, tooltip="plotly_label")
 
 
-p2 = ggplot(PSC_soft_df) + 
+p2 <- ggplot(PSC_soft_df) + 
     geom_histogram(aes(x = nIndels, plotly_label=sample), fill = "#A9A9A9") +
     theme_bw() +
     presentation + xlab("Total Indels")
@@ -180,20 +180,20 @@ Count for each strain.
 ```{r per_sample_count_hard_filter}
 # hard filter (after filter)
 # SNV
-PSC_hard = stats_hard_filter[c(grep(pattern = "PSC", x = stats_hard_filter))]
+PSC_hard <- stats_hard_filter[c(grep(pattern = "PSC", x = stats_hard_filter))]
 PSC_hard_df <- read.table(text = PSC_hard, sep = "\t", header = F)
 
-PSC_header = stats_hard_filter[c(grep(pattern = "PSC.*Het", x = stats_hard_filter))]
-split_header=str_replace_all(PSC_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
-names(PSC_hard_df) = split_header[[1]]
+PSC_header <- stats_hard_filter[c(grep(pattern = "PSC.*Het", x = stats_hard_filter))]
+split_header <- str_replace_all(PSC_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
+names(PSC_hard_df) <- split_header[[1]]
 
 # Indel breakdown
-PSI_hard = stats_hard_filter[c(grep(pattern = "PSI", x = stats_hard_filter))]
+PSI_hard <- stats_hard_filter[c(grep(pattern = "PSI", x = stats_hard_filter))]
 PSI_hard_df <- read.table(text = PSI_hard, sep = "\t", header = F)
 
-PSI_header = stats_hard_filter[c(grep(pattern = "PSI.*Het", x = stats_hard_filter))]
-split_header=str_replace_all(PSI_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
-names(PSI_hard_df) = split_header[[1]]
+PSI_header <- stats_hard_filter[c(grep(pattern = "PSI.*Het", x = stats_hard_filter))]
+split_header <- str_replace_all(PSI_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
+names(PSI_hard_df) <- split_header[[1]]
 
 PSI_hard_df %<>% select(sample, nHets) %>% rename(Indel_nHets = nHets) 
 
@@ -206,7 +206,7 @@ DT::datatable(select(PSC_hard_df, sample, total_SNV, nHets, nIndels, Indel_nHets
 
 
 ```{r plot_SNV_Indel_count_hard, fig.width=5, fig.height=4}
-p3 = ggplot(PSC_hard_df) + 
+p3 <- ggplot(PSC_hard_df) + 
     geom_histogram(aes(x = total_SNV, plotly_label=sample), fill = "#A9A9A9") +
     theme_bw() +
     presentation  + xlab("Total SNVs")
@@ -214,7 +214,7 @@ p3 = ggplot(PSC_hard_df) +
 ggplotly(p3, tooltip="plotly_label")
 
 
-p4 = ggplot(PSC_hard_df) + 
+p4 <- ggplot(PSC_hard_df) + 
     geom_histogram(aes(x = nIndels, plotly_label=sample), fill = "#A9A9A9") +
     theme_bw() +
     presentation  + xlab("Total Indels")
