@@ -423,7 +423,7 @@ process soft_filter {
     */
     """
         function cleanup {
-            rm ad_dp.filtered.vcf.gz
+            rm ad_dp.filtered.vcf.gz out.vcf
         }
         trap cleanup EXIT
 
@@ -437,10 +437,10 @@ process soft_filter {
             --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
             --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
             --genotype-filter-expression "isHet == 1"                  --genotype-filter-name "is_het" \\
-            -O /dev/stdout | \\
-            ad_dp
+            -O out.vcf
         
         # ad_dp filter
+        bcftools view out.vcf | ad_dp | bcftools view -O z > ad_dp.filtered.vcf.gz
         bcftools index --tbi ad_dp.filtered.vcf.gz
         
         # Apply high missing and high heterozygosity filters

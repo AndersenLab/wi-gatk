@@ -40,7 +40,7 @@ proc isMissing(gt: Genotype): bool =
 var wtr:VCF
 var v:VCF
 doAssert(open(v, "-"))
-doAssert(open(wtr, "ad_dp.filtered.vcf.gz", mode="w"))
+doAssert(open(wtr, "/dev/stdout", mode="w"))
 wtr.header = v.header
 discard wtr.header.add_format(ID = "FT", Number = "1", Type = "String", Description = "FILTER for genotype")
 doAssert(wtr.write_header())
@@ -66,6 +66,7 @@ for record in v:
                 ft[i] = "."
             else:
                 ft[i] = "PASS"
+                
     for sample_index in 0..<n_samples:
         if gt[sample_index].isHomRef() == false:
             var ad_set: seq[int32]
