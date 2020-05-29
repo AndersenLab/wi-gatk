@@ -38,6 +38,12 @@ proc between(s: int, a: int, b: int): bool =
 proc rev_phred_to_p(phred: int): float =
      return math.pow(10.0, phred.float / -10.0)
 
+proc is_snp*(rec: Variant): bool = 
+    for i in @[rec.REF].concat(rec.ALT):
+        if i.len != 1:
+            return false
+    return true
+
 proc is_heterozygous(gt: seq[Allele]): bool = 
     let gt_set = gt.toSeq()
     if (gt_set[0].value() > 0 or
@@ -54,6 +60,8 @@ var pl_set: seq[int32]
 var log_set: seq[float]
 
 for record in v:
+    if record.is_snp() == false or record.ALT.len > 1:
+        continue
     var n_alts = record.ALT.len
     var arr_len = n_samples*(n_alts + 1)
     var pl = new_seq[int32](arr_len)
