@@ -70,12 +70,12 @@ for record in v:
             pl_set = pl[ idx * 3 .. (idx * 3) + 2]
             if pl_set[0].between(-1000, 1000) and pl_set[2].between(-1000, 1000):
                 log_set = pl_set.mapIt( rev_phred_to_p(it) )
-                var log_score = -math.log10(log_set[0] / log_set[2])
-                if log_score <= -2.0:
+                var log_score = math.log10(log_set[0] / log_set[2])
+                if log_score >= 2.0:
                     gts[(idx*2)] = geno[0].value().gtval()
                     gts[(idx*2) + 1] = geno[0].value().gtval()
                     hp[idx] = fmt"AA"
-                elif log_score >= 2.0:
+                elif log_score <= -2.0:
                     gts[(idx*2)] = geno[1].value().gtval()
                     gts[(idx*2) + 1] = geno[1].value().gtval()
                     hp[idx] = fmt"BB"
