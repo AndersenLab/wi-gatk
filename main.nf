@@ -65,6 +65,7 @@ out += """
     ==========               ===========                ========================
     output                   Release Directory          ${params.output}
     sample_sheet             sample sheet               ${params.sample_sheet}
+    bam_location             Directory of bam files     ${params.bam_location}
     reference                Reference Genome           ${reference}
     username                                            ${"whoami".execute().in.text}
 
