@@ -372,6 +372,8 @@ process annotate_vcf {
       -dataDir ${params.snpeff_dir} \\
       -config ${params.snpeff_dir}/snpEff.config \\
       ${params.snpeff_reference} | \\
+      bcftools annotate --annotation ${params.dust_bed} | \\
+      bcftools annotate --annotation ${params.repeat_masker_bed} | \\
       bcftools view --threads=${task.cpus-1} -O z > ${contig}.annotated.vcf.gz
       bcftools index --tbi ${contig}.annotated.vcf.gz
     """
