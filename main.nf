@@ -48,6 +48,8 @@ params.fisherstrand = 50.0
 params.high_missing = 0.95
 params.high_heterozygosity = 0.10
 
+// Variant annotation
+params.vcfanno_config = "data/vcfanno.toml"
 
 def log_summary() {
 
@@ -360,22 +362,21 @@ process annotate_vcf {
         path "${contig}.${date}.snpeff.csv", emit: 'snpeff_csv'
 
 
-    // vcffixup recalculates AN/AC for het-polarized sites.
+    script:
     """
-      bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
-      vcffixup - | \\
-      snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
-                 -no-downstream \\
-                 -no-intergenic \\
-                 -no-upstream \\
-                 -nodownload \\
-      -dataDir ${params.snpeff_dir} \\
-      -config ${params.snpeff_dir}/snpEff.config \\
-      ${params.snpeff_reference} | \\
-      bcftools annotate --annotation ${params.dust_bed} | \\
-      bcftools annotate --annotation ${params.repeat_masker_bed} | \\
-      bcftools view --threads=${task.cpus-1} -O z > ${contig}.annotated.vcf.gz
-      bcftools index --tbi ${contig}.annotated.vcf.gz
+        bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
+        vcffixup - | \\
+        snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
+                   -no-downstream \\
+                   -no-intergenic \\
+                   -no-upstream \\
+                   -nodownload \\
+        -dataDir ${params.snpeff_dir} \\
+        -config ${params.snpeff_dir}/snpEff.config \\
+        ${params.snpeff_reference} | \\
+        bcftools view --threads=${task.cpus-1} -O z > out.vcf.gz
+        vcfanno ${params.vcfanno_config} out.vcf.gz > ${contig}.annotation.vcf.gz
+        bcftools index --tbi ${contig}.annotated.vcf.gz
     """
 
 }

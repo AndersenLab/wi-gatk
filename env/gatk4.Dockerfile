@@ -23,4 +23,8 @@ RUN conda env export --name gatk4 > gatk4.yml
 ADD ad_dp /usr/local/bin
 ADD het_polarization /usr/local/bin
 
+# Install vcfanno
+RUN wget -O /opt/conda/envs/gatk4/bin/vcfanno https://github.com/brentp/vcfanno/releases/download/v0.3.2/vcfanno_linux64 && \
+    chmod +x /opt/conda/envs/gatk4/bin/vcfanno
+
 LABEL Name="gatk4" Author="Daniel Cook"

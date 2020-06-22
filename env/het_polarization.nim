@@ -30,11 +30,6 @@ doAssert(wtr.write_header())
 
 var n_samples = len(v.samples)
 
-proc between(s: int, a: int, b: int): bool = 
-    if a <= s and s <= b:
-        return true
-    return false
-
 proc rev_phred_to_p(phred: int): float =
      return math.pow(10.0, phred.float / -10.0)
 
@@ -76,20 +71,19 @@ for record in v:
         # Only operatate on heterozygous variants
         if geno.is_heterozygous():
             pl_set = pl[ idx * 3 .. (idx * 3) + 2]
-            if pl_set[0].between(-1000, 1000) and pl_set[2].between(-1000, 1000):
-                log_set = pl_set.mapIt( rev_phred_to_p(it) )
-                var log_score = math.log10(log_set[0] / log_set[2])
-                if log_score >= 2.0:
-                    gts[(idx*2)] = geno[0].value().gtval()
-                    gts[(idx*2) + 1] = geno[0].value().gtval()
-                    hp[idx] = fmt"AA"
-                elif log_score <= -2.0:
-                    gts[(idx*2)] = geno[1].value().gtval()
-                    gts[(idx*2) + 1] = geno[1].value().gtval()
-                    hp[idx] = fmt"BB"
-                else:
-                    hp[idx] = "AB"
-                hp_val[idx] = fmt"{log_score:<0.3}"
+            log_set = pl_set.mapIt( rev_phred_to_p(it) )
+            var log_score = math.log10(log_set[0] / log_set[2])
+            if log_score >= 2.0:
+                gts[(idx*2)] = geno[0].value().gtval()
+                gts[(idx*2) + 1] = geno[0].value().gtval()
+                hp[idx] = fmt"AA"
+            elif log_score <= -2.0:
+                gts[(idx*2)] = geno[1].value().gtval()
+                gts[(idx*2) + 1] = geno[1].value().gtval()
+                hp[idx] = fmt"BB"
+            else:
+                hp[idx] = "AB"
+            hp_val[idx] = fmt"{log_score:<0.3}"
         else:
             # No het polarization fields
             hp[idx] = "."
