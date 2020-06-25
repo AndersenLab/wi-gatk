@@ -165,8 +165,8 @@ workflow {
     strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv_vcf
     
     // Extract SNPeff severity tracks
-    mod_tracks = Channel.from(["LOW", "MODERATE", "HIGH", "MODIFIER"])
-    soft_filter.out.soft_filter_vcf.spread(mod_tracks) | generate_severity_tracks
+//    mod_tracks = Channel.from(["LOW", "MODERATE", "HIGH", "MODIFIER"])
+//    soft_filter.out.soft_filter_vcf.spread(mod_tracks) | generate_severity_tracks
 
     // MultiQC Report
     soft_filter.out.soft_vcf_stats.concat(
@@ -413,8 +413,8 @@ process soft_filter {
         tuple path(vcf), path(vcf_index)
 
     output:
-        tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
-        path "WI.${date}.soft-filter.vcf.gz.tbi"
+        tuple path("WI.${date}.soft-filter.gatk.vcf.gz"), path("WI.${date}.soft-filter.gatk.vcf.gz.csi"), emit: soft_filter_vcf
+        path "WI.${date}.soft-filter.gatk.vcf.gz.tbi"
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
         path "WI.${date}.soft-filter.filter_stats.txt"
     
@@ -446,14 +446,14 @@ process soft_filter {
         
         # Apply high missing and high heterozygosity filters
         bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
-        bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode + --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
+        bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode + --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.gatk.vcf.gz
 
-        bcftools index WI.${date}.soft-filter.vcf.gz
-        bcftools index --tbi WI.${date}.soft-filter.vcf.gz
+        bcftools index WI.${date}.soft-filter.gatk.vcf.gz
+        bcftools index --tbi WI.${date}.soft-filter.gatk.vcf.gz
         bcftools stats --threads ${task.cpus} \\
-                       -s- --verbose WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
+                       -s- --verbose WI.${date}.soft-filter.gatk.vcf.gz > WI.${date}.soft-filter.stats.txt
 
-        bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.filter_stats.txt
+        bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.gatk.vcf.gz > WI.${date}.soft-filter.filter_stats.txt
 
     """
 }
@@ -478,8 +478,8 @@ process hard_filter {
         tuple path(vcf), path(vcf_index), path(contigs)
 
     output:
-        tuple path("WI.${date}.hard-filter.vcf.gz"), path("WI.${date}.hard-filter.vcf.gz.csi"), emit: 'vcf'
-        path "WI.${date}.hard-filter.vcf.gz.tbi"
+        tuple path("WI.${date}.hard-filter.gatk.vcf.gz"), path("WI.${date}.hard-filter.gatk.vcf.gz.csi"), emit: 'vcf'
+        path "WI.${date}.hard-filter.gatk.vcf.gz.tbi"
         path "WI.${date}.hard-filter.stats.txt", emit: 'hard_vcf_stats'
 
 
@@ -512,11 +512,11 @@ process hard_filter {
         bcftools concat  -O u --file-list contig_set.tsv | \\
         bcftools csq -O z --fasta-ref ${reference} \\
                      --gff-annot csq.gff.gz \\
-                     --phase a > WI.${date}.hard-filter.vcf.gz
+                     --phase a > WI.${date}.hard-filter.gatk.vcf.gz
 
-        bcftools index WI.${date}.hard-filter.vcf.gz
-        bcftools index --tbi WI.${date}.hard-filter.vcf.gz
-        bcftools stats -s- --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
+        bcftools index WI.${date}.hard-filter.gatk.vcf.gz
+        bcftools index --tbi WI.${date}.hard-filter.gatk.vcf.gz
+        bcftools stats -s- --verbose WI.${date}.hard-filter.gatk.vcf.gz > WI.${date}.hard-filter.stats.txt
     """
 }
 
@@ -546,25 +546,25 @@ process generate_strain_tsv_vcf {
         tuple val(strain), path(vcf), file(vcf_index)
 
     output:
-        tuple path("${strain}.${date}.vcf.gz"),  path("${strain}.${date}.vcf.gz.tbi")
-        tuple path("${strain}.${date}.vcf.gz"),  path("${strain}.${date}.vcf.gz.csi")
-        tuple path("${strain}.${date}.tsv.gz"),  path("${strain}.${date}.tsv.gz.tbi")
+        tuple path("${strain}.${date}.gatk.vcf.gz"),  path("${strain}.${date}.gatk.vcf.gz.tbi")
+        tuple path("${strain}.${date}.gatk.vcf.gz"),  path("${strain}.${date}.gatk.vcf.gz.csi")
+        tuple path("${strain}.${date}.gatk.tsv.gz"),  path("${strain}.${date}.gatk.tsv.gz.tbi")
 
     """
         # Generate VCF
         bcftools view -O z --samples ${strain} \\
                            --exclude-uncalled \\
-                           ${vcf}  > ${strain}.${date}.vcf.gz
-        bcftools index ${strain}.${date}.vcf.gz
-        bcftools index --tbi ${strain}.${date}.vcf.gz
+                           ${vcf}  > ${strain}.${date}.gatk.vcf.gz
+        bcftools index ${strain}.${date}.gatk.vcf.gz
+        bcftools index --tbi ${strain}.${date}.gatk.vcf.gz
 
         # Generate TSV
         {
             echo 'CHROM\\tPOS\\tREF\\tALT\\tFILTER\\tFT\\tGT';
             bcftools query -f '[%CHROM\\t%POS\\t%REF\\t%ALT\t%FILTER\\t%FT\\t%TGT]\\n' --samples ${strain} ${vcf};
-        } > ${strain}.${date}.tsv
-        bgzip ${strain}.${date}.tsv
-        tabix -S 1 -s 1 -b 2 -e 2 ${strain}.${date}.tsv.gz
+        } > ${strain}.${date}.gatk.tsv
+        bgzip ${strain}.${date}.gatk.tsv
+        tabix -S 1 -s 1 -b 2 -e 2 ${strain}.${date}.gatk.tsv.gz
     """
 
 }
