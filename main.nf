@@ -471,7 +471,10 @@ process soft_filter {
         bcftools stats --threads ${task.cpus} \\
                        -s- --verbose WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
 
-        bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.filter_stats.txt
+        {
+            echo -e 'QUAL\\tQD\\tSOR\\tFS\\tFILTER';
+            bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.vcf.gz;
+        }     > WI.${date}.soft-filter.filter_stats.txt
 
     """
 }
@@ -578,8 +581,8 @@ process generate_strain_tsv_vcf {
 
         # Generate TSV
         {
-            echo 'CHROM\\tPOS\\tREF\\tALT\\tFILTER\\tFT\\tGT';
-            bcftools query -f '[%CHROM\\t%POS\\t%REF\\t%ALT\t%FILTER\\t%FT\\t%TGT]\\n' --samples ${strain} ${vcf};
+            echo -e 'CHROM\\tPOS\\tREF\\tALT\\tFILTER\\tFT\\tGT';
+            bcftools query -f '[%CHROM\t%POS\t%REF\t%ALT\t%FILTER\t%FT\t%TGT]\n' --samples ${strain} ${vcf};
         } > ${strain}.${date}.tsv
         bgzip ${strain}.${date}.tsv
         tabix -S 1 -s 1 -b 2 -e 2 ${strain}.${date}.tsv.gz
