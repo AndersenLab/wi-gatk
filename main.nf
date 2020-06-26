@@ -48,6 +48,8 @@ params.fisherstrand = 50.0
 params.high_missing = 0.95
 params.high_heterozygosity = 0.10
 
+// Variant annotation
+params.vcfanno_config = "data/vcfanno.toml"
 
 def log_summary() {
 
@@ -149,8 +151,15 @@ workflow {
                            .combine(contigs)
                            .combine(sample_map) | \
                         import_genomics_db | \
-                        genotype_cohort_gvcf_db | \
-                        annotate_vcf
+                        genotype_cohort_gvcf_db
+
+    // Combine VCF anno config and send to annotation
+    genotype_cohort_gvcf_db.out
+        .combine(Channel.fromPath(params.vcfanno_config))
+        .combine(Channel.fromPath(params.dust_bed))
+        .combine(Channel.fromPath(params.dust_bed + ".tbi"))
+        .combine(Channel.fromPath(params.repeat_masker_bed))
+        .combine(Channel.fromPath(params.repeat_masker_bed + ".tbi")) | annotate_vcf
 
     vcfs = annotate_vcf.out.anno_vcf.collect().map { [it] }.combine(get_contigs.out)
     vcfs | concatenate_vcf
@@ -353,27 +362,35 @@ process annotate_vcf {
     cache 'lenient'
 
     input:
-        tuple val(contig), file("${contig}.bcf"), file("${contig}.bcf.csi")
+        tuple val(contig), \
+              file("${contig}.bcf"), \
+              file("${contig}.bcf.csi"), \
+              path(vcfanno), \
+              path("dust.bed.gz"), \
+              path("dust.bed.gz.tbi"), \
+              path("repeat_masker.bed.gz"), \
+              path("repeat_masker.bed.gz.tbi")
 
     output:
         tuple path("${contig}.annotated.vcf.gz"), path("${contig}.annotated.vcf.gz.tbi"), emit: 'anno_vcf'
         path "${contig}.${date}.snpeff.csv", emit: 'snpeff_csv'
 
 
-    // vcffixup recalculates AN/AC for het-polarized sites.
+    script:
     """
-      bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
-      vcffixup - | \\
-      snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
-                 -no-downstream \\
-                 -no-intergenic \\
-                 -no-upstream \\
-                 -nodownload \\
-      -dataDir ${params.snpeff_dir} \\
-      -config ${params.snpeff_dir}/snpEff.config \\
-      ${params.snpeff_reference} | \\
-      bcftools view --threads=${task.cpus-1} -O z > ${contig}.annotated.vcf.gz
-      bcftools index --tbi ${contig}.annotated.vcf.gz
+        bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
+        vcffixup - | \\
+        snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
+                   -no-downstream \\
+                   -no-intergenic \\
+                   -no-upstream \\
+                   -nodownload \\
+        -dataDir ${params.snpeff_dir} \\
+        -config ${params.snpeff_dir}/snpEff.config \\
+        ${params.snpeff_reference} | \\
+        bcftools view --threads=${task.cpus-1} -O z > out.vcf.gz
+        vcfanno ${vcfanno} out.vcf.gz | bcftools view -O z > ${contig}.annotated.vcf.gz
+        bcftools index --tbi ${contig}.annotated.vcf.gz
     """
 
 }
