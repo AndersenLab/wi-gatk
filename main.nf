@@ -261,6 +261,7 @@ process call_variants_individual {
             --annotation-group StandardAnnotation \\
             --annotation-group AS_StandardAnnotation \\
             --annotation-group StandardHCAnnotation \\
+            --do-not-run-physical-phasing \\
             -R ${reference} \\
             -I ${bam} \\
             -L ${region} \\
