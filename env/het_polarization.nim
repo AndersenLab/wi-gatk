@@ -25,13 +25,10 @@ doAssert(open(v, "/dev/stdin"))
 doAssert(open(wtr, "/dev/stdout", mode="wb"))
 wtr.header = v.header
 discard wtr.header.add_format(ID = "HP", Number = "1", Type = "String", Description = fmt"Flag used to mark whether a heterozygous site was polarized [AA/BB]; Version {version}")
-discard wtr.header.add_format(ID = "HP_VAL", Number = "1", Type = "Float", Description = fmt"PL-alt/PL-ref; < 0.5 ALT Polarization; > 2 REF polarization; Version {version}")
+discard wtr.header.add_format(ID = "HP_VAL", Number = "1", Type = "Float", Description = fmt"PL-alt/PL-ref; <= 0.5 and PL-alt <= 200 ALT Polarization; >= 2 and PL-ref <= 200 REF polarization; Version {version}")
 doAssert(wtr.write_header())
 
 var n_samples = len(v.samples)
-
-# proc rev_phred_to_p(phred: int): float =
-#      return math.pow(10.0, phred.float / -10.0)
 
 proc is_snp*(rec: Variant): bool = 
     for i in @[rec.REF].concat(rec.ALT):
@@ -71,22 +68,18 @@ for record in v:
         # Only operatate on heterozygous variants
         if geno.is_heterozygous():
             pl_set = pl[ idx * 3 .. (idx * 3) + 2]
-        #   log_set = pl_set.mapIt( rev_phred_to_p(it) )
-        #    var log_score = math.log10(log_set[0] / log_set[2])
-            var log_score = pl_set[2] / pl_set[0]
-            if log_score >= 2.0 and
-                pl_set[0] <= 200:
+            var pl_ratio = pl_set[2] / pl_set[0]
+            if pl_ratio >= 2.0 and pl_set[0] <= 200:
                 gts[(idx*2)] = geno[0].value().gtval()
                 gts[(idx*2) + 1] = geno[0].value().gtval()
                 hp[idx] = fmt"AA"
-            elif log_score <= 0.5 and
-                pl_set[2] <= 200:
+            elif pl_ratio <= 0.5 and pl_set[2] <= 200:
                 gts[(idx*2)] = geno[1].value().gtval()
                 gts[(idx*2) + 1] = geno[1].value().gtval()
                 hp[idx] = fmt"BB"
             else:
                 hp[idx] = "AB"
-            hp_val[idx] = fmt"{log_score:<0.3}"
+            hp_val[idx] = fmt"{pl_ratio:<0.3}"
         else:
             # No het polarization fields
             hp[idx] = "."
