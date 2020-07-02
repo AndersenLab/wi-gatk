@@ -53,6 +53,7 @@ var log_set: seq[float]
 
 for record in v:
     if record.is_snp() == false or record.ALT.len > 1:
+        doAssert wtr.write_variant(record)
         continue
     var n_alts = record.ALT.len
     var arr_len = n_samples*(n_alts + 1)
