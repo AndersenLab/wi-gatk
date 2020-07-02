@@ -24,7 +24,7 @@ var v:VCF
 doAssert(open(v, "/dev/stdin"))
 doAssert(open(wtr, "/dev/stdout", mode="wb"))
 wtr.header = v.header
-discard wtr.header.add_format(ID = "HP", Number = "1", Type = "String", Description = fmt"Flag used to mark whether a heterozygous site was polarized [AA/BB]; Version {version}")
+discard wtr.header.add_format(ID = "HP", Number = "1", Type = "String", Description = fmt"Flag used to mark whether a heterozygous site was polarized [AA/BB], only applied to biallelic SNP sites; Version {version}")
 discard wtr.header.add_format(ID = "HP_VAL", Number = "1", Type = "Float", Description = fmt"PL-alt/PL-ref; <= 0.5 and PL-alt <= 200 ALT Polarization; >= 2 and PL-ref <= 200 REF polarization; Version {version}")
 doAssert(wtr.write_header())
 
