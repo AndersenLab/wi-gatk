@@ -512,7 +512,7 @@ process hard_filter {
         # Generate hard-filtered VCF
         function generate_hard_filter {
             bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
-            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
+            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' |\\
             bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
             bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
             vcffixup - | \\
