@@ -5,13 +5,11 @@ on:
   push:
     paths:
     - 'env/gatk4.Dockerfile'
-    - 'env/ad_dp.nim'
     - 'env/het_polarization.nim'
     - '.github/workflows/build_docker.yml'
   pull_request:
     paths:
     - 'env/gatk4.Dockerfile'
-    - 'env/ad_dp.nim'
     - 'env/het_polarization.nim'
     - '.github/workflows/build_docker.yml'
 
@@ -25,11 +23,6 @@ jobs:
     - uses: jiro4989/setup-nim-action@v1.0.2
       with:
           nim-version: 1.0.6
-
-    - name: Build AD_DP
-      run: |
-        nimble install -y hts
-        nim c -d:release env/ad_dp.nim && chmod +x env/ad_dp
 
     - name: Build Het polarization
       run: |

@@ -42,9 +42,8 @@ if (params.debug.toString() == "true") {
 params.min_depth = 5
 params.qual = 30.0
 params.strand_odds_ratio = 5.0
-params.dv_dp = 0.5
-params.quality_by_depth = 5.0
-params.fisherstrand = 50.0
+params.quality_by_depth = 20.0
+params.fisherstrand = 100.0
 params.high_missing = 0.95
 params.high_heterozygosity = 0.10
 
@@ -88,7 +87,6 @@ out += """
     ---------------           
     min_depth                Minimum variant depth      ${params.min_depth}
     qual                     Variant QUAL score         ${params.qual}
-    ad_dp                    Good ALT reads / depth     ${params.dv_dp}
     strand_odds_ratio        SOR_strand_odds_ratio      ${params.strand_odds_ratio} 
     quality_by_depth         QD_quality_by_depth        ${params.quality_by_depth} 
     fisherstrand             FS_fisher_strand           ${params.fisherstrand}
@@ -261,6 +259,7 @@ process call_variants_individual {
             --annotation-group StandardAnnotation \\
             --annotation-group AS_StandardAnnotation \\
             --annotation-group StandardHCAnnotation \\
+            --do-not-run-physical-phasing \\
             -R ${reference} \\
             -I ${bam} \\
             -L ${region} \\
@@ -331,6 +330,11 @@ process genotype_cohort_gvcf_db {
 
     output:
         tuple val(contig), file("${contig}_cohort.bcf"), file("${contig}_cohort.bcf.csi")
+
+
+    /*
+        het_polarization polarizes het-variants to REF or ALT
+    */
 
     """
         gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
@@ -435,13 +439,10 @@ process soft_filter {
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
         path "WI.${date}.soft-filter.filter_stats.txt"
     
-    /*
-        ad_dp is a binary that adds the ad_dp filter. Do not remove.
-        het_polarization polarizes het-variants to REF or ALT
-    */
+
     """
         function cleanup {
-            rm ad_dp.filtered.vcf.gz out.vcf
+            rm out.vcf.gz
         }
         trap cleanup EXIT
 
@@ -457,12 +458,11 @@ process soft_filter {
             --genotype-filter-expression "isHet == 1"                  --genotype-filter-name "is_het" \\
             -O out.vcf
         
-        # ad_dp filter
-        bcftools view out.vcf | ad_dp | bcftools view -O z > ad_dp.filtered.vcf.gz
-        bcftools index --tbi ad_dp.filtered.vcf.gz
+        bgzip out.vcf
+        bcftools index --tbi out.vcf.gz
         
         # Apply high missing and high heterozygosity filters
-        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' ad_dp.filtered.vcf.gz |\\
+        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' out.vcf.gz |\\
         bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode + --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
 
         bcftools index WI.${date}.soft-filter.vcf.gz
@@ -470,7 +470,10 @@ process soft_filter {
         bcftools stats --threads ${task.cpus} \\
                        -s- --verbose WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
 
-        bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.filter_stats.txt
+        {
+            echo -e 'QUAL\\tQD\\tSOR\\tFS\\tFILTER';
+            bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.vcf.gz;
+        }     > WI.${date}.soft-filter.filter_stats.txt
 
     """
 }
@@ -509,7 +512,7 @@ process hard_filter {
         # Generate hard-filtered VCF
         function generate_hard_filter {
             bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
-            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT != "PASS"' |\\
+            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' |\\
             bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
             bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
             vcffixup - | \\
@@ -577,9 +580,10 @@ process generate_strain_tsv_vcf {
 
         # Generate TSV
         {
-            echo 'CHROM\\tPOS\\tREF\\tALT\\tFILTER\\tFT\\tGT';
-            bcftools query -f '[%CHROM\\t%POS\\t%REF\\t%ALT\t%FILTER\\t%FT\\t%TGT]\\n' --samples ${strain} ${vcf};
-        } > ${strain}.${date}.tsv
+            echo -e 'CHROM\\tPOS\\tREF\\tALT\\tFILTER\\tFT\\tGT';
+            bcftools query -f '[%CHROM\t%POS\t%REF\t%ALT\t%FILTER\t%FT\t%TGT]\n' --samples ${strain} ${vcf};
+        } | awk -F'\\t' -vOFS='\\t' '{ gsub("\\\\.", "PASS", \$6) ; print }' > ${strain}.${date}.tsv
+
         bgzip ${strain}.${date}.tsv
         tabix -S 1 -s 1 -b 2 -e 2 ${strain}.${date}.tsv.gz
     """

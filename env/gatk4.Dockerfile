@@ -19,8 +19,7 @@ ENV PATH /opt/conda/envs/gatk4/bin:$PATH
 ENV LD_LIBRARY_PATH /opt/conda/envs/gatk4/lib
 RUN conda env export --name gatk4 > gatk4.yml
 
-# Add ad_dp (pre-built for linux)
-ADD ad_dp /usr/local/bin
+# Add het_polarization (pre-built for linux)
 ADD het_polarization /usr/local/bin
 
 # Install vcfanno
