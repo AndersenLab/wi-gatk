@@ -514,8 +514,8 @@ process hard_filter {
             bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
             bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' |\\
             bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
+            bcftools view -O v --min-af 0.000001 --max-af 0.999999 |\\
             vcffixup - | \\
-            bcftools view -O v --min-af 0.0000000000001 --max-af 0.999999999999 |\\
             bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
         }
 
