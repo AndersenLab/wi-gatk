@@ -333,7 +333,7 @@ process genotype_cohort_gvcf_db {
 
 
     /*
-        het_polarization polarizes het-variants to REF or ALT
+        het_polarization polarizes het-variants to REF or ALT (except for mitochondria)
     */
 
     """
@@ -345,11 +345,20 @@ process genotype_cohort_gvcf_db {
             -G AS_StandardAnnotation \\
             -G StandardHCAnnotation \\
             -L ${contig} \\
-           -O ${contig}_cohort.vcf
+            -O ${contig}_cohort.vcf
 
-        bcftools view -O z ${contig}_cohort.vcf | \
-        het_polarization > ${contig}_cohort.bcf
-        bcftools index ${contig}_cohort.bcf
+        if [ "${contig}" == "MtDNA" ]
+        then
+            bcftools view -O b ${contig}_cohort.vcf > ${contig}_cohort.bcf
+            bcftools index ${contig}_cohort.bcf
+
+        else
+        
+            bcftools view -O z ${contig}_cohort.vcf | \\
+            het_polarization > ${contig}_cohort.bcf
+            bcftools index ${contig}_cohort.bcf
+        
+        fi
     """
 }
 
@@ -363,7 +372,6 @@ process annotate_vcf {
     
     tag { contig }
 
-    cache 'lenient'
 
     input:
         tuple val(contig), \
