@@ -363,8 +363,6 @@ process annotate_vcf {
     
     tag { contig }
 
-    cache 'lenient'
-
     input:
         tuple val(contig), \
               file("${contig}.bcf"), \
