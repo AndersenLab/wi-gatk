@@ -21,6 +21,7 @@ date = new Date().format( 'yyyyMMdd' )
 params.debug = false
 params.help = false
 params.bam_location = "" // Use this to specify the directory for bams
+params.mito_name = "MtDNA" // Use this to specify the directory for bams
 
 // Check that reference exists
 params.reference = ""
@@ -62,36 +63,37 @@ def log_summary() {
 
 out += """
 
-    parameters               description                Set/Default
-    ==========               ===========                ========================
-    output                   Release Directory          ${params.output}
-    sample_sheet             sample sheet               ${params.sample_sheet}
-    bam_location             Directory of bam files     ${params.bam_location}
-    reference                Reference Genome           ${reference}
-    username                                            ${"whoami".execute().in.text}
+    parameters               description                 Set/Default
+    ==========               ===========                 ========================
+    output                   Release Directory           ${params.output}
+    sample_sheet             sample sheet                ${params.sample_sheet}
+    bam_location             Directory of bam files      ${params.bam_location}
+    reference                Reference Genome            ${reference}
+    mito_name                Contig not to polarize het  ${params.mito_name}
+    username                                             ${"whoami".execute().in.text}
 
     Nextflow Run
     ---------------
     ${workflow.commandLine}
-    run name                                            ${workflow.runName}
-    scriptID                                            ${workflow.scriptId}
-    git commit                                          ${workflow.commitId}
-    container                                           ${workflow.container}
+    run name                                             ${workflow.runName}
+    scriptID                                             ${workflow.scriptId}
+    git commit                                           ${workflow.commitId}
+    container                                            ${workflow.container}
 
     Reference Genome
     ---------------
-    reference_base          location of ref genomes     ${params.reference_base}
-    species/project/build                               ${params.species} / ${params.project} / ${params.ws_build}
+    reference_base          location of ref genomes      ${params.reference_base}
+    species/project/build                                ${params.species} / ${params.project} / ${params.ws_build}
 
     Variant Filters         
     ---------------           
-    min_depth                Minimum variant depth      ${params.min_depth}
-    qual                     Variant QUAL score         ${params.qual}
-    strand_odds_ratio        SOR_strand_odds_ratio      ${params.strand_odds_ratio} 
-    quality_by_depth         QD_quality_by_depth        ${params.quality_by_depth} 
-    fisherstrand             FS_fisher_strand           ${params.fisherstrand}
-    missing_max              % missing genotypes        ${params.high_missing}
-    heterozygosity_max       % max heterozygosity       ${params.high_heterozygosity}
+    min_depth                Minimum variant depth       ${params.min_depth}
+    qual                     Variant QUAL score          ${params.qual}
+    strand_odds_ratio        SOR_strand_odds_ratio       ${params.strand_odds_ratio} 
+    quality_by_depth         QD_quality_by_depth         ${params.quality_by_depth} 
+    fisherstrand             FS_fisher_strand            ${params.fisherstrand}
+    missing_max              % missing genotypes         ${params.high_missing}
+    heterozygosity_max       % max heterozygosity        ${params.high_heterozygosity}
 
 ---
 """
@@ -333,7 +335,7 @@ process genotype_cohort_gvcf_db {
 
 
     /*
-        het_polarization polarizes het-variants to REF or ALT
+        het_polarization polarizes het-variants to REF or ALT (except for mitochondria)
     */
 
     """
@@ -345,11 +347,20 @@ process genotype_cohort_gvcf_db {
             -G AS_StandardAnnotation \\
             -G StandardHCAnnotation \\
             -L ${contig} \\
-           -O ${contig}_cohort.vcf
+            -O ${contig}_cohort.vcf
 
-        bcftools view -O z ${contig}_cohort.vcf | \
-        het_polarization > ${contig}_cohort.bcf
-        bcftools index ${contig}_cohort.bcf
+        if [ "${contig}" == "${params.mito_name}" ]
+        then
+            bcftools view -O b ${contig}_cohort.vcf > ${contig}_cohort.bcf
+            bcftools index ${contig}_cohort.bcf
+
+        else
+        
+            bcftools view -O z ${contig}_cohort.vcf | \\
+            het_polarization > ${contig}_cohort.bcf
+            bcftools index ${contig}_cohort.bcf
+        
+        fi
     """
 }
 
@@ -507,14 +518,29 @@ process hard_filter {
             rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
         }
         trap cleanup EXIT
+
         # Generate hard-filtered VCF
         function generate_hard_filter {
+
+        if [ \${1} == "${params.mito_name}" ]
+
+        then
+            bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
+            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth"' |\\
+            bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
+            bcftools view -O v --min-af 0.000001 --max-af 0.999999 |\\
+            vcffixup - | \\
+            bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
+
+        else
             bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
             bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' |\\
             bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
             bcftools view -O v --min-af 0.000001 --max-af 0.999999 |\\
             vcffixup - | \\
             bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
+        fi
+
         }
 
         export -f generate_hard_filter
