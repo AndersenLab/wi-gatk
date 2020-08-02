@@ -374,7 +374,6 @@ process annotate_vcf {
     
     tag { contig }
 
-
     input:
         tuple val(contig), \
               file("${contig}.bcf"), \
