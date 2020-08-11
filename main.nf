@@ -391,7 +391,7 @@ process annotate_vcf {
 
     script:
     """
-        bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
+        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} ${contig}.bcf | \\
         vcffixup - | \\
         snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
                    -no-downstream \\
