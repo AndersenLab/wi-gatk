@@ -171,7 +171,7 @@ workflow {
     strain_set = strain_list.out.splitText()
                    .map { it.trim() }
 
-    strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv_vcf
+    strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv
     
     // Extract SNPeff severity tracks
     mod_tracks = Channel.from(["LOW", "MODERATE", "HIGH", "MODIFIER"])
@@ -391,7 +391,7 @@ process annotate_vcf {
 
     script:
     """
-        bcftools view -O v --threads=${task.cpus-1} ${contig}.bcf | \\
+        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} ${contig}.bcf | \\
         vcffixup - | \\
         snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
                    -no-downstream \\
@@ -578,30 +578,20 @@ process strain_list {
 }
 
 
-process generate_strain_tsv_vcf {
+process generate_strain_tsv {
     // Generate a single TSV and VCF for every strain.
 
     tag { strain }
 
-    publishDir "${params.output}/strain/vcf", mode: 'copy', pattern: "*.vcf.gz*"
     publishDir "${params.output}/strain/tsv", mode: 'copy', pattern: "*.tsv.gz*"
 
     input:
         tuple val(strain), path(vcf), file(vcf_index)
 
     output:
-        tuple path("${strain}.${date}.vcf.gz"),  path("${strain}.${date}.vcf.gz.tbi")
-        tuple path("${strain}.${date}.vcf.gz"),  path("${strain}.${date}.vcf.gz.csi")
         tuple path("${strain}.${date}.tsv.gz"),  path("${strain}.${date}.tsv.gz.tbi")
 
     """
-        # Generate VCF
-        bcftools view -O z --samples ${strain} \\
-                           --exclude-uncalled \\
-                           ${vcf}  > ${strain}.${date}.vcf.gz
-        bcftools index ${strain}.${date}.vcf.gz
-        bcftools index --tbi ${strain}.${date}.vcf.gz
-
         # Generate TSV
         {
             echo -e 'CHROM\\tPOS\\tREF\\tALT\\tFILTER\\tFT\\tGT';
