@@ -355,7 +355,8 @@ process concatenate_vcf {
 
     """
         awk '{ print \$0 "_cohort.bcf" }' contigs.txt > contig_set.tsv
-        bcftools concat  -O u --file-list contig_set.tsv |\\
+        bcftools concat  -O v --file-list contig_set.tsv |\\
+        vcffixup - | \\
         bcftools view -O z --min-af 0.000001 > WI.vcf.gz
         bcftools index --tbi WI.vcf.gz
     """
