@@ -21,7 +21,8 @@ date = new Date().format( 'yyyyMMdd' )
 params.debug = false
 params.help = false
 params.bam_location = "" // Use this to specify the directory for bams
-params.mito_name = "MtDNA" // Use this to specify the directory for bams
+params.mito_name = "MtDNA" // Name of contig to skip het polarization
+
 
 // Check that reference exists
 params.reference = ""
@@ -32,10 +33,12 @@ if (params.debug.toString() == "true") {
     params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
     params.bam_location = "${workflow.projectDir}" // Use this to specify the directory for bams
+    params.cendr = true  // Whether write out strain vcf and severity tracks which is likely only used by cendr
 } else {
     // The strain sheet that used for 'production' is located in the root of the git repo
     params.output = "WI-${date}"
     params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
+    params.cendr = false
 }
 
 
@@ -70,6 +73,7 @@ out += """
     bam_location             Directory of bam files      ${params.bam_location}
     reference                Reference Genome            ${reference}
     mito_name                Contig not to polarize het  ${params.mito_name}
+    cendr                    Write out single-strain vcf ${params.cendr}
     username                                             ${"whoami".execute().in.text}
 
     Nextflow Run
@@ -166,16 +170,21 @@ workflow {
     concatenate_vcf.out.vcf | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
-    // Generate Strain-level TSV and VCFs
-    soft_filter.out.soft_filter_vcf | strain_list
-    strain_set = strain_list.out.splitText()
-                   .map { it.trim() }
+if (params.cendr == true) {
 
-    strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv
-    
-    // Extract SNPeff severity tracks
-    mod_tracks = Channel.from(["LOW", "MODERATE", "HIGH", "MODIFIER"])
-    soft_filter.out.soft_filter_vcf.spread(mod_tracks) | generate_severity_tracks
+      // Generate Strain-level TSV and VCFs
+      soft_filter.out.soft_filter_vcf | strain_list
+      strain_set = strain_list.out.splitText()
+                     .map { it.trim() }
+
+      strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv
+      
+      // Extract SNPeff severity tracks
+      mod_tracks = Channel.from(["LOW", "MODERATE", "HIGH", "MODIFIER"])
+      soft_filter.out.soft_filter_vcf.spread(mod_tracks) | generate_severity_tracks
+
+}
+
 
     // MultiQC Report
     soft_filter.out.soft_vcf_stats.concat(
