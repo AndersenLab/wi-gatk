@@ -157,39 +157,15 @@ workflow {
                         import_genomics_db | \
                         genotype_cohort_gvcf_db
 
-    // Combine VCF anno config and send to annotation
-    genotype_cohort_gvcf_db.out
-        .combine(Channel.fromPath(params.vcfanno_config))
-        .combine(Channel.fromPath(params.dust_bed))
-        .combine(Channel.fromPath(params.dust_bed + ".tbi"))
-        .combine(Channel.fromPath(params.repeat_masker_bed))
-        .combine(Channel.fromPath(params.repeat_masker_bed + ".tbi")) | annotate_vcf
 
-    vcfs = annotate_vcf.out.anno_vcf.collect().map { [it] }.combine(get_contigs.out)
-    vcfs | concatenate_vcf
+    genotype_cohort_gvcf_db.out.collect().concat(get_contigs.out).collect() | concatenate_vcf
     concatenate_vcf.out.vcf | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
-
-if (params.cendr == true) {
-
-      // Generate Strain-level TSV and VCFs
-      soft_filter.out.soft_filter_vcf | strain_list
-      strain_set = strain_list.out.splitText()
-                     .map { it.trim() }
-
-      strain_set.combine( soft_filter.out.soft_filter_vcf ) | generate_strain_tsv
-      
-      // Extract SNPeff severity tracks
-      mod_tracks = Channel.from(["LOW", "MODERATE", "HIGH", "MODIFIER"])
-      soft_filter.out.soft_filter_vcf.spread(mod_tracks) | generate_severity_tracks
-
-}
 
 
     // MultiQC Report
     soft_filter.out.soft_vcf_stats.concat(
-        hard_filter.out.hard_vcf_stats,
-        annotate_vcf.out.snpeff_csv
+        hard_filter.out.hard_vcf_stats
     ).collect() | multiqc_report
 
 }
@@ -340,12 +316,8 @@ process genotype_cohort_gvcf_db {
         tuple val(contig), file("${contig}.db")
 
     output:
-        tuple val(contig), file("${contig}_cohort.bcf"), file("${contig}_cohort.bcf.csi")
+        tuple file("${contig}_cohort.vcf.gz"), file("${contig}_cohort.vcf.gz.csi")
 
-
-    /*
-        het_polarization polarizes het-variants to REF or ALT (except for mitochondria)
-    */
 
     """
         gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
@@ -358,64 +330,12 @@ process genotype_cohort_gvcf_db {
             -L ${contig} \\
             -O ${contig}_cohort.vcf
 
-        if [ "${contig}" == "${params.mito_name}" ]
-        then
-            bcftools view -O b ${contig}_cohort.vcf > ${contig}_cohort.bcf
-            bcftools index ${contig}_cohort.bcf
-
-        else
-        
-            bcftools view -O z ${contig}_cohort.vcf | \\
-            het_polarization > ${contig}_cohort.bcf
-            bcftools index ${contig}_cohort.bcf
-        
-        fi
+        bcftools view -O z ${contig}_cohort.vcf > ${contig}_cohort.vcf.gz
+        bcftools index ${contig}_cohort.vcf.gz
     """
 }
 
-/*=====================================================
-~ ~ ~ > *  SnpEff Annotate Cohort Chrom VCFs  * < ~ ~ ~  
-=====================================================*/
 
-process annotate_vcf {
-
-    label 'lg' 
-    
-    tag { contig }
-
-    input:
-        tuple val(contig), \
-              file("${contig}.bcf"), \
-              file("${contig}.bcf.csi"), \
-              path(vcfanno), \
-              path("dust.bed.gz"), \
-              path("dust.bed.gz.tbi"), \
-              path("repeat_masker.bed.gz"), \
-              path("repeat_masker.bed.gz.tbi")
-
-    output:
-        tuple path("${contig}.annotated.vcf.gz"), path("${contig}.annotated.vcf.gz.tbi"), emit: 'anno_vcf'
-        path "${contig}.${date}.snpeff.csv", emit: 'snpeff_csv'
-
-
-    script:
-    """
-        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} ${contig}.bcf | \\
-        vcffixup - | \\
-        snpEff eff -csvStats ${contig}.${date}.snpeff.csv \\
-                   -no-downstream \\
-                   -no-intergenic \\
-                   -no-upstream \\
-                   -nodownload \\
-        -dataDir ${params.snpeff_dir} \\
-        -config ${params.snpeff_dir}/snpEff.config \\
-        ${params.snpeff_reference} | \\
-        bcftools view --threads=${task.cpus-1} -O z > out.vcf.gz
-        vcfanno ${vcfanno} out.vcf.gz | bcftools view -O z > ${contig}.annotated.vcf.gz
-        bcftools index --tbi ${contig}.annotated.vcf.gz
-    """
-
-}
 
 /*===============================================
 ~ ~ ~ > *   Concatenate Annotated VCFs  * < ~ ~ ~
@@ -426,15 +346,15 @@ process concatenate_vcf {
     label 'lg'
 
     input:
-        tuple path("*"), path("contigs.txt")
+        path("*")
 
     output:
-        tuple path("WI.annotated.vcf.gz"), path("WI.annotated.vcf.gz.tbi"), emit: 'vcf'
+        tuple path("WI.vcf.gz"), path("WI.vcf.gz.tbi"), emit: 'vcf'
 
     """
-        awk '{ print \$0 ".annotated.vcf.gz" }' contigs.txt > contig_set.tsv
-        bcftools concat  -O z --file-list contig_set.tsv > WI.annotated.vcf.gz
-        bcftools index --tbi WI.annotated.vcf.gz
+        awk '{ print \$0 "_cohort.vcf.gz" }' contigs.txt > contig_set.tsv
+        bcftools concat  -O z --file-list contig_set.tsv > WI.vcf.gz
+        bcftools index --tbi WI.vcf.gz
     """
 }
 
@@ -459,10 +379,6 @@ process soft_filter {
     
 
     """
-        function cleanup {
-            rm out.vcf.gz
-        }
-        trap cleanup EXIT
 
         gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             VariantFiltration \\
@@ -522,18 +438,11 @@ process hard_filter {
 
 
     """
-        function cleanup {
-            # cleanup files on completion
-            rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
-        }
-        trap cleanup EXIT
 
         # Generate hard-filtered VCF
         function generate_hard_filter {
 
-        if [ \${1} == "${params.mito_name}" ]
-
-        then
+ 
             bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
             bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth"' |\\
             bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
@@ -541,14 +450,6 @@ process hard_filter {
             vcffixup - | \\
             bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
 
-        else
-            bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
-            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' |\\
-            bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
-            bcftools view -O v --min-af 0.000001 --max-af 0.999999 |\\
-            vcffixup - | \\
-            bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
-        fi
 
         }
 
@@ -556,16 +457,9 @@ process hard_filter {
 
         parallel --verbose generate_hard_filter :::: ${contigs}
 
-        # Remove transposons from GFF3 as they throw errors with CSQ
-        gzip -dc ${file(params.csq_gff, checkIfExists: true)} | grep -v 'transposon' | bgzip > csq.gff.gz
-        tabix -p gff csq.gff.gz
-
 
         awk '{ print \$0 ".vcf.gz" }' ${contigs} > contig_set.tsv
-        bcftools concat  -O u --file-list contig_set.tsv | \\
-        bcftools csq -O z --fasta-ref ${reference} \\
-                     --gff-annot csq.gff.gz \\
-                     --phase a > WI.${date}.hard-filter.vcf.gz
+        bcftools concat  -O z --file-list contig_set.tsv > WI.${date}.hard-filter.vcf.gz
 
         bcftools index WI.${date}.hard-filter.vcf.gz
         bcftools index --tbi WI.${date}.hard-filter.vcf.gz
@@ -573,79 +467,7 @@ process hard_filter {
     """
 }
 
-process strain_list {
 
-    input:
-        tuple path(vcf), path(vcf_index)
-    
-    output:
-        file("samples.txt")
-
-    """
-        bcftools query --list-samples ${vcf} > samples.txt
-    """
-}
-
-
-process generate_strain_tsv {
-    // Generate a single TSV and VCF for every strain.
-
-    tag { strain }
-
-    publishDir "${params.output}/strain/tsv", mode: 'copy', pattern: "*.tsv.gz*"
-
-    input:
-        tuple val(strain), path(vcf), file(vcf_index)
-
-    output:
-        tuple path("${strain}.${date}.tsv.gz"),  path("${strain}.${date}.tsv.gz.tbi")
-
-    """
-        # Generate TSV
-        {
-            echo -e 'CHROM\\tPOS\\tREF\\tALT\\tFILTER\\tFT\\tGT';
-            bcftools query -f '[%CHROM\t%POS\t%REF\t%ALT\t%FILTER\t%FT\t%TGT]\n' --samples ${strain} ${vcf};
-        } | awk -F'\\t' -vOFS='\\t' '{ gsub("\\\\.", "PASS", \$6) ; print }' > ${strain}.${date}.tsv
-
-        bgzip ${strain}.${date}.tsv
-        tabix -S 1 -s 1 -b 2 -e 2 ${strain}.${date}.tsv.gz
-    """
-
-}
-
-process generate_severity_tracks {
-    /*
-        The severity tracks are bedfiles with annotations for
-        LOW
-        MODERATE
-        HIGH
-        MODIFIER
-        variants as annotated with SNPEff
-
-        They are used on the CeNDR browser.
-    */
-
-    publishDir "${params.output}/tracks", mode: 'copy'
-
-    tag { severity }
-
-    input:
-        tuple path("in.vcf.gz"), path("in.vcf.gz.csi"), val(severity)
-    output:
-        set file("${date}.${severity}.bed.gz"), file("${date}.${severity}.bed.gz.tbi")
-
-    """
-        bcftools view --apply-filters PASS in.vcf.gz | \
-        grep ${severity} | \
-        awk '\$0 !~ "^#" { print \$1 "\\t" (\$2 - 1) "\\t" (\$2)  "\\t" \$1 ":" \$2 "\\t0\\t+"  "\\t" \$2 - 1 "\\t" \$2 "\\t0\\t1\\t1\\t0" }' | \\
-        bgzip  > ${date}.${severity}.bed.gz
-        tabix -p bed ${date}.${severity}.bed.gz
-        fsize=\$(zcat ${date}.${severity}.bed.gz | wc -c)
-        if [ \${fsize} -lt 2000 ]; then
-            exit 1
-        fi;
-    """
-}
 
 process multiqc_report {
 
