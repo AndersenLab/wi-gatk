@@ -49,7 +49,7 @@ params.strand_odds_ratio = 5.0
 params.quality_by_depth = 20.0
 params.fisherstrand = 100.0
 params.high_missing = 0.95
-params.high_heterozygosity = 0.10
+params.high_heterozygosity = 1
 
 // Variant annotation
 params.vcfanno_config = "data/vcfanno.toml"
