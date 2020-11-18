@@ -334,7 +334,7 @@ process genotype_cohort_gvcf_db {
     // Heterozygous polarization is also performed here.
 
     tag { "${contig}" }
-    label 'lg'
+    label 'xl'
 
     input:
         tuple val(contig), file("${contig}.db")
