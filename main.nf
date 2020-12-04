@@ -158,8 +158,7 @@ workflow {
 
 
     // Combine VCF and filter
-    vcfs = genotype_cohort_gvcf_db.out.collect().map { [it] }.combine(get_contigs.out)
-    vcfs | concatenate_vcf
+    genotype_cohort_gvcf_db.out.collect() | concatenate_vcf
     concatenate_vcf.out.vcf | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
@@ -317,7 +316,7 @@ process genotype_cohort_gvcf_db {
         tuple val(contig), file("${contig}.db")
 
     output:
-        tuple val(contig), file("${contig}_cohort.bcf"), file("${contig}_cohort.bcf.csi")
+        tuple file("${contig}_cohort.bcf"), file("${contig}_cohort.bcf.csi")
 
 
     /*
@@ -352,21 +351,21 @@ process genotype_cohort_gvcf_db {
 
 
 /*===============================================
-~ ~ ~ > *   Concatenate Annotated VCFs  * < ~ ~ ~
+~ ~ ~ > *   Concatenate VCFs  * < ~ ~ ~
 ===============================================*/
 
 process concatenate_vcf {
 
     label 'lg'
 
-    input:
-        tuple path("*"), path("contigs.txt")
+    input: 
+      path("*")
 
     output:
-        tuple path("WI.annotated.vcf.gz"), path("WI.annotated.vcf.gz.tbi"), emit: 'vcf'
+        tuple path("WI.raw.vcf.gz"), path("WI.raw.vcf.gz.tbi"), emit: 'vcf'
 
     """
-        awk '{ print \$0 "_cohort.bcf" }' contigs.txt > contig_set.tsv
+        ls *_cohort.bcf > contig_set.tsv
         bcftools concat  -O z --file-list contig_set.tsv > WI.raw.vcf.gz
         bcftools index --tbi WI.raw.vcf.gz
     """
