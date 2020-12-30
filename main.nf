@@ -4,6 +4,7 @@
     Authors:
     - Stefan Zdraljevic
     - Daniel Cook <danielecook@gmail.com>
+    - Dan Lu
 */
 nextflow.preview.dsl=2
 
@@ -18,8 +19,6 @@ nextflow.preview.dsl=2
 */
 
 date = new Date().format( 'yyyyMMdd' )
-params.debug = false
-params.help = false
 params.bam_location = "" // Use this to specify the directory for bams
 params.mito_name = "MtDNA" // Name of contig to skip het polarization
 
@@ -29,16 +28,14 @@ params.reference = ""
 reference = file(params.reference, checkIfExists: true)
 
 // Debug
-if (params.debug.toString() == "true") {
+if (params.debug) {
     params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
     params.bam_location = "${workflow.projectDir}" // Use this to specify the directory for bams
-//    params.cendr = true  // Whether write out strain vcf and severity tracks which is likely only used by cendr
 } else {
     // The strain sheet that used for 'production' is located in the root of the git repo
     params.output = "WI-${date}"
     params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
-//    params.cendr = false
 }
 
 
@@ -65,38 +62,35 @@ def log_summary() {
 
 out += """
 
-    parameters               description                 Set/Default
-    ==========               ===========                 ========================
-    output                   Release Directory           ${params.output}
-    sample_sheet             sample sheet                ${params.sample_sheet}
-    bam_location             Directory of bam files      ${params.bam_location}
-    reference                Reference Genome            ${reference}
-    mito_name                Contig not to polarize het  ${params.mito_name}
-    cendr                    Write out single-strain vcf ${params.cendr}
-    username                                             ${"whoami".execute().in.text}
+To run the pipeline:
 
-    Nextflow Run
-    ---------------
-    ${workflow.commandLine}
-    run name                                             ${workflow.runName}
-    scriptID                                             ${workflow.scriptId}
-    git commit                                           ${workflow.commitId}
-    container                                            ${workflow.container}
+nextflow main.nf --debug
+nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/projects/b1059/workflows/alignment-nf/
+
+    parameters                 description                           Set/Default
+    ==========                 ===========                           ========================
+    --debug                    Use --debug to indicate debug mode    ${params.debug}
+    --output                   Release Directory                     ${params.output}
+    --sample_sheet             Sample sheet                          ${params.sample_sheet}
+    --bam_location             Directory of bam files                ${params.bam_location}
+    --reference                Reference Genome                      ${params.reference}
+    --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
+    --username                                                       ${"whoami".execute().in.text}
 
     Reference Genome
-    ---------------
-    reference_base          location of ref genomes      ${params.reference_base}
-    species/project/build                                ${params.species} / ${params.project} / ${params.ws_build}
+    --------------- 
+    --reference_base           Location of ref genomes               ${params.reference_base}
+    --species/project/build    These 4 params form --reference       ${params.species} / ${params.project} / ${params.ws_build}
 
     Variant Filters         
     ---------------           
-    min_depth                Minimum variant depth       ${params.min_depth}
-    qual                     Variant QUAL score          ${params.qual}
-    strand_odds_ratio        SOR_strand_odds_ratio       ${params.strand_odds_ratio} 
-    quality_by_depth         QD_quality_by_depth         ${params.quality_by_depth} 
-    fisherstrand             FS_fisher_strand            ${params.fisherstrand}
-    missing_max              % missing genotypes         ${params.high_missing}
-    heterozygosity_max       % max heterozygosity        ${params.high_heterozygosity}
+    --min_depth                Minimum variant depth                 ${params.min_depth}
+    --qual                     Variant QUAL score                    ${params.qual}
+    --strand_odds_ratio        SOR_strand_odds_ratio                 ${params.strand_odds_ratio} 
+    --quality_by_depth         QD_quality_by_depth                   ${params.quality_by_depth} 
+    --fisherstrand             FS_fisher_strand                      ${params.fisherstrand}
+    --high_missing             Max % missing genotypes               ${params.high_missing}
+    --high_heterozygosity      Max % max heterozygosity              ${params.high_heterozygosity}
 
 ---
 """
@@ -106,11 +100,6 @@ out
 log.info(log_summary())
 
 if (params.help) {
-    exit 1
-}
-
-if (workflow.profile == "") {
-    println "Must set -profile: local, quest, gcp"
     exit 1
 }
 
