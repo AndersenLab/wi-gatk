@@ -65,6 +65,7 @@ out += """
 To run the pipeline:
 
 nextflow main.nf --debug
+nextflow main.nf -profile debug
 nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/projects/b1059/workflows/alignment-nf/
 
     parameters                 description                           Set/Default
@@ -305,7 +306,7 @@ process genotype_cohort_gvcf_db {
         tuple val(contig), file("${contig}.db")
 
     output:
-        tuple file("${contig}_cohort.bcf"), file("${contig}_cohort.bcf.csi")
+        tuple file("${contig}_cohort_pol.vcf.gz"), file("${contig}_cohort_pol.vcf.gz.csi")
 
 
     /*
@@ -335,6 +336,11 @@ process genotype_cohort_gvcf_db {
             bcftools index ${contig}_cohort.bcf
         
         fi
+
+        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} ${contig}_cohort.bcf | \\
+        vcffixup - | \\
+        bcftools view -O z > ${contig}_cohort_pol.vcf.gz
+        bcftools index ${contig}_cohort_pol.vcf.gz
     """
 }
 
@@ -354,7 +360,7 @@ process concatenate_vcf {
         tuple path("WI.raw.vcf.gz"), path("WI.raw.vcf.gz.tbi"), emit: 'vcf'
 
     """
-        ls *_cohort.bcf > contig_set.tsv
+        ls *_cohort_pol.vcf.gz > contig_set.tsv
         bcftools concat  -O z --file-list contig_set.tsv > WI.raw.vcf.gz
         bcftools index --tbi WI.raw.vcf.gz
     """
