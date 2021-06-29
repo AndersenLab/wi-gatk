@@ -1,0 +1,6 @@
+[[annotation]]
+file="tajima.bed.gz"
+columns=[6]
+names=["tajima"]
+ops=["mean"]
+type="FLOAT"

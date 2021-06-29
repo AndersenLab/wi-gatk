@@ -1,0 +1,11 @@
+##fileformat=VCFv4.1
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##FORMAT=<ID=CN,Number=1,Type=Integer,Description="Copy number genotype for imprecise events">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	temp1
+I	0	.	.	<CNV>	.	.	END=15072434	CN	1
+II	0	.	.	<CNV>	.	.	END=15279421	CN	1
+III	0	.	.	<CNV>	.	.	END=13783801	CN	1
+IV	0	.	.	<CNV>	.	.	END=17493829	CN	1
+V	0	.	.	<CNV>	.	.	END=20924180	CN	1
+X	0	.	.	<CNV>	.	.	END=17718942	CN	1
+MtDNA	0	.	.	<CNV>	.	.	END=13794	CN	1
