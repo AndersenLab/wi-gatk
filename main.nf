@@ -19,7 +19,7 @@ nextflow.preview.dsl=2
 */
 
 date = new Date().format( 'yyyyMMdd' )
-params.bam_location = "" // Use this to specify the directory for bams
+//params.bam_location = "" // Use this to specify the directory for bams
 params.mito_name = "MtDNA" // Name of contig to skip het polarization
 
 
@@ -36,6 +36,7 @@ if (params.debug) {
     // The strain sheet that used for 'production' is located in the root of the git repo
     params.output = "WI-${date}"
     params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
+    params.bam_location = "/projects/b1059/data/${params.species}/WI/alignments/"
 }
 
 
@@ -151,6 +152,12 @@ workflow {
     genotype_cohort_gvcf_db.out.collect() | concatenate_vcf
     concatenate_vcf.out.vcf | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
+
+    // Impute VCF -- hard filter doesn't work with debug??
+    soft_filter.out.soft_filter_vcf | subset_snv
+    contigs.combine(subset_snv.out) | imputation
+    imputation.out 
+        .toSortedList() | concat_imputed
 
 
     // MultiQC Report
@@ -489,7 +496,86 @@ process hard_filter {
     """
 }
 
+/*==============================================
+~ ~ ~ > *   Impute hard filter VCF     * < ~ ~ ~
+==============================================*/
 
+process subset_snv {
+
+    input:
+        tuple file(hardvcf), file(hardvcf_index)
+
+    output:
+        file("WI.${date}.hard-filter.isotype.SNV.vcf.gz")
+
+    """
+    bcftools view -O u ${hardvcf} | \
+    bcftools view -O v --types snps --min-af 0.000001 --max-af 0.999999 | \
+    vcffixup - | \
+    bcftools view --threads=3 -O z > WI.${date}.hard-filter.isotype.SNV.vcf.gz
+
+    """
+
+}
+
+process imputation { 
+
+    tag {CHROM} 
+    cpus params.cores 
+
+    //conda '/projects/b1059/software/conda_envs/beagle'
+    container 'andersenlab/beagle:v0.2'
+
+    input:
+        tuple val(CHROM), file(hardvcf)
+
+    output:
+        tuple val(CHROM), file("${CHROM}_b5.vcf.gz"), file("${CHROM}_b5.vcf.gz.csi")
+
+    """
+
+    if [ ${CHROM} == "X" ]
+    then
+        beagle -Xmx98g chrom=${CHROM} window=3 overlap=1 impute=true ne=100000 nthreads=3 imp-segment=0.5 imp-step=0.01 cluster=0.0005 gt=${hardvcf} map=${workflow.projectDir}/bin/chr${CHROM}.map out=${CHROM}.b5
+    else
+        beagle -Xmx98g chrom=${CHROM} window=10 overlap=2 impute=true ne=100000 nthreads=3 imp-segment=0.5 imp-step=0.01 cluster=0.0005 gt=${hardvcf} map=${workflow.projectDir}/bin/chr${CHROM}.map out=${CHROM}.b5
+    fi
+
+    bcftools index ${CHROM}.b5.vcf.gz
+
+    """
+
+}
+
+
+process concat_imputed { 
+
+    publishDir "${params.out}/variation/", mode: 'copy'
+
+    memory '64 GB'
+    cpus 20
+
+    input:
+        tuple val(CHROM), file(vcf), file(index) 
+
+    output:
+        tuple file("WI.20210121.impute.isotype.vcf.gz"), file("WI.20210121.impute.isotype.vcf.gz.tbi")
+
+    """
+    bcftools concat -O z I.b5.vcf.gz \\
+    II.b5.vcf.gz \\
+    III.b5.vcf.gz \\
+    IV.b5.vcf.gz \\
+    V.b5.vcf.gz \\
+    X.b5.vcf.gz \\
+    MtDNA.b5.vcf.gz > WI.20210121.impute.isotype.vcf.gz
+
+    tabix -p vcf WI.20210121.impute.isotype.vcf.gz
+
+    bcftools stats --verbose WI.20210121.impute.isotype.vcf.gz > WI.20210121.impute.isotype.stats.txt
+
+    """
+}
 
 
 process multiqc_report {
