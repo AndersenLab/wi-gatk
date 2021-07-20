@@ -24,8 +24,8 @@ params.mito_name = "MtDNA" // Name of contig to skip het polarization
 
 
 // Check that reference exists
-params.reference = ""
-reference = file(params.reference, checkIfExists: true)
+// params.reference = ""
+//reference = file(params.reference, checkIfExists: true)
 
 // Debug
 if (params.debug) {
@@ -37,6 +37,37 @@ if (params.debug) {
     params.output = "WI-${date}"
     params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
 }
+
+// set default project and ws build for species
+if(params.species == "c_elegans") {
+    params.project="PRJNA13758"
+    params.ws_build="WS276"
+} else if(params.species == "c_briggsae") {
+    params.project="QX1410_nanopore"
+    params.ws_build="Feb2020"
+} else if(params.species == "c_tropicalis") {
+    params.project="NIC58_nanopore"
+    params.ws_build="June2021"
+}
+
+// check reference
+if(params.species == "c_elegans" | params.species == "c_briggsae" | params.species == "c_tropicalis") {
+    params.reference = "/projects/b1059/data/${params.species}/genomes/${params.project}/${params.ws_build}/${params.species}.${params.project}.${params.ws_build}.genome.fa.gz"
+} else if (params.species == null) {
+    if (params.reference == null) {
+        if (params.help) {
+        } else { 
+        println """
+
+        Please specify a species: c_elegans c_brigssae c_tropicalis with option --species, or a ref genome with --reference"
+
+        """
+        exit 1
+        }
+    }
+}
+
+reference = file(params.reference, checkIfExists: true)
 
 
 // Variant Filtering
