@@ -12,7 +12,7 @@ Variant calling was done for each strain, in contrast to previous CeNDR releases
 
 The variant calling pipeline can be downloaded here: https://github.com/AndersenLab/wi-gatk
 
-Variant data can be downloaded here: https://
+Variant data can be downloaded here: https://elegansvariation.org/data/release/latest
 
 
 ```{r setup, echo=F, warning=FALSE, message=FALSE}
@@ -22,7 +22,6 @@ library(DT)
 library(UpSetR)
 library(magrittr)
 library(plotly)
-library(glue)
 library(patchwork)
 
 opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, print=FALSE, verbose=TRUE)
@@ -46,13 +45,13 @@ presentation <- theme(axis.text.x = element_text(size=10, face="bold", color="bl
 
 ```{r load}
 
-vcf_date <- ""
+vcf_date <- "RELEASE_DATE"
 
-stats_soft_filter <- readLines(glue("WI.{vcf_date}.soft-filter.stats.txt"))
+stats_soft_filter <- readLines(glue::glue("WI.{vcf_date}.soft-filter.stats.txt"))
 SN_soft <- stats_soft_filter[c(grep(pattern = "^SN", x = stats_soft_filter))]
 SN_soft_df <- read.table(text = SN_soft, sep = "\t")
 
-stats_hard_filter <- readLines(glue("WI.{vcf_date}.hard-filter.stats.txt"))
+stats_hard_filter <- readLines(glue::glue("WI.{vcf_date}.hard-filter.stats.txt"))
 SN_hard <- stats_hard_filter[c(grep(pattern = "^SN", x = stats_hard_filter))]
 SN_hard_df <- read.table(text = SN_hard, sep = "\t")
 ```
@@ -68,7 +67,7 @@ SN_hard_df <- read.table(text = SN_hard, sep = "\t")
 
 
 ```{r, fig.width=8, fig.height=6}
-filter_stats <- read.delim(glue("WI.{vcf_date}.soft-filter.filter_stats.txt"), header=FALSE, stringsAsFactors=FALSE) 
+filter_stats <- read.delim(glue::glue("WI.{vcf_date}.soft-filter.filter_stats.txt"), header=FALSE, stringsAsFactors=FALSE) 
 
 names(filter_stats) <- c("QUAL","QD","SOR","FS","FILTER")
 

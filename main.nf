@@ -21,6 +21,7 @@ nextflow.preview.dsl=2
 date = new Date().format( 'yyyyMMdd' )
 params.bam_location = "" // Use this to specify the directory for bams
 params.mito_name = "MtDNA" // Name of contig to skip het polarization
+params.R_libpath = "/projects/b1059/software/R_lib_3.6.0/"
 
 
 // Check that reference exists
@@ -29,6 +30,7 @@ params.mito_name = "MtDNA" // Name of contig to skip het polarization
 
 // Debug
 if (params.debug) {
+    params.species == "c_elegans"
     params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
     params.bam_location = "${workflow.projectDir}" // Use this to specify the directory for bams
@@ -188,6 +190,7 @@ workflow {
     soft_filter.out.soft_vcf_stats.concat(
         hard_filter.out.hard_vcf_stats
     ).collect() | multiqc_report
+    multiqc_report.out.for_report | html_report
 
 }
 
@@ -532,10 +535,39 @@ process multiqc_report {
 
     output:
         file("multiqc_data/*.json")
-        file("multiqc.html")
+        path "multiqc.html", emit: "for_report"
 
     """
         multiqc -k json --filename multiqc.html .
     """
 
 }
+
+
+// gatk report for cendr
+process html_report {
+
+    label 'R'
+
+    conda "/projects/b1059/software/conda_envs/cegwas2-nf_env"
+
+    publishDir "${params.output}", mode: 'copy'
+
+    input:
+        path("*")
+
+    output:
+        file("*.html")
+
+    """
+    echo ".libPaths(c(\\"${params.R_libpath}\\", .libPaths() ))" > .Rprofile
+
+    cat "${workflow.projectDir}/bin/gatk_report.Rmd" | \\
+        sed -e 's/RELEASE_DATE/${date}/g' > gatk_report_${date}.Rmd
+    Rscript -e "rmarkdown::render('gatk_report_${date}.Rmd', knit_root_dir='${workflow.launchDir}/${params.out}')"
+        
+    """
+
+}
+
+
