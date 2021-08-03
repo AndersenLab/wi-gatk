@@ -13,15 +13,6 @@ RUN conda create -n gatk4 \
                         vcflib=1.0.0_rc3 \
                         multiqc=1.8 \
                         parallel=20200322 \
-                        r=3.6.0 \
-                        pandoc=2.12 \
-                        r-rmarkdown=2.1 \
-                        r-tidyverse=1.3.0 \
-                        r-knitr=1.28 \
-                        r-DT=0.12 \
-                        r-plotly=4.9.2 \
-                        r-magrittr \
-                        r-UpSetR \
     && conda clean -a
 ENV PATH /opt/conda/envs/gatk4/bin:$PATH
 # Use libhts.so from conda
