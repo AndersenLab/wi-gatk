@@ -1,42 +1,38 @@
 ---
-title: "Variant calling stats for GATK"
 date: "`r Sys.Date()`"
 output: 
   html_document: 
-    theme: null
+    theme: yeti
 editor_options: 
   chunk_output_type: console
 ---
 
-Variant calling was done for each strain, in contrast to previous CeNDR releases that were done for isotypes. 
-
-The variant calling pipeline can be downloaded here: https://github.com/AndersenLab/wi-gatk
-
-Variant data can be downloaded here: https://elegansvariation.org/data/release/latest
-
 
 ```{r setup, echo=F, warning=FALSE, message=FALSE}
-library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(stringr)
 library(knitr)
 library(DT)
-library(UpSetR)
+library(ggupset)
+library(ggplot2)
 library(magrittr)
 library(plotly)
+library(glue)
 library(patchwork)
 
 opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, print=FALSE, verbose=TRUE)
 
 presentation <- theme(axis.text.x = element_text(size=10, face="bold", color="black"),
                       axis.text.y = element_text(size=10, face="bold", color="black"),
-                      axis.title.x = element_text(size=12, face="bold", color="black", vjust=-1),
-                      axis.title.y = element_text(size=12, face="bold", color="black", vjust=2),
+                      axis.title.x = element_text(size=14, face="bold", color="black", vjust=-1),
+                      axis.title.y = element_text(size=14, face="bold", color="black", vjust=2),
                       strip.text.x = element_text(size=12, face="bold", color="black"),
                       strip.text.y = element_text(size=12, face="bold", color="black"),
                       panel.spacing = unit(0.50, "lines"),
-                      plot.margin  = unit(c(1,1,1,1), "cm"),
+                      plot.margin  = unit(c(0.8,0.8,0.8,0.8), "cm"),
                       plot.title   = element_text(size=24, face="bold",vjust=2),
                       legend.position="none")
-
 
 ```
 
@@ -44,67 +40,97 @@ presentation <- theme(axis.text.x = element_text(size=10, face="bold", color="bl
 
 
 ```{r load}
+vcf_date="RELEASE_DATE"
 
-vcf_date <- "RELEASE_DATE"
-
-stats_soft_filter <- readLines(glue::glue("WI.{vcf_date}.soft-filter.stats.txt"))
+stats_soft_filter <- readLines(glue("variation/WI.{vcf_date}.soft-filter.stats.txt"))
 SN_soft <- stats_soft_filter[c(grep(pattern = "^SN", x = stats_soft_filter))]
 SN_soft_df <- read.table(text = SN_soft, sep = "\t")
 
-stats_hard_filter <- readLines(glue::glue("WI.{vcf_date}.hard-filter.stats.txt"))
+stats_hard_filter <- readLines(glue("variation/WI.{vcf_date}.hard-filter.stats.txt"))
 SN_hard <- stats_hard_filter[c(grep(pattern = "^SN", x = stats_hard_filter))]
 SN_hard_df <- read.table(text = SN_hard, sep = "\t")
 ```
 
 ## Overview
 
-* __Total strains__ - `r SN_soft_df$V4[1]`
-* __Total SNPs before filter__ - `r SN_soft_df$V4[4]`
-* __Total indels before filter__ - `r SN_soft_df$V4[6]`
-* __Total SNPs after filter__ - `r SN_hard_df$V4[4]`
-* __Total indels after filter__ - `r SN_hard_df$V4[6]`
+* __Total strains__ : `r format(SN_soft_df$V4[1],big.mark=",",scientific=FALSE)`
+* __Total SNVs before filter__ : `r format(SN_soft_df$V4[4],big.mark=",",scientific=FALSE)`
+* __Total SNVs after filter__ : `r format(SN_hard_df$V4[4],big.mark=",",scientific=FALSE)`
+* __Total indels before filter__ : `r format(SN_soft_df$V4[6],big.mark=",",scientific=FALSE)`
+* __Total indels after filter__ : `r format(SN_hard_df$V4[6],big.mark=",",scientific=FALSE)`
 
+<br>
 
+## Site-level quality filters
 
 ```{r, fig.width=8, fig.height=6}
-filter_stats <- read.delim(glue::glue("WI.{vcf_date}.soft-filter.filter_stats.txt"), header=FALSE, stringsAsFactors=FALSE) 
+filter_stats <- readr::read_tsv(glue("variation/WI.{vcf_date}.soft-filter.filter_stats.txt")) 
 
-names(filter_stats) <- c("QUAL","QD","SOR","FS","FILTER")
-
-filter_stats %<>% mutate( QUAL=as.numeric(QUAL), QD=as.numeric(QD), SOR=as.numeric(SOR), FS=as.numeric(FS))
+filter_stats %<>% 
+    dplyr::mutate( QUAL=as.numeric(QUAL), QD=as.numeric(QD), SOR=as.numeric(SOR), FS=as.numeric(FS)) # %>% slice(1:5000)
 
 filter_thresh <- data.frame(QUAL = 30,
-QD = 5,
-SOR = 5,
-FS=50)
+                           QD = 20,
+                           SOR = 5,
+                           FS=100)
 
-pa <- ggplot(filter_stats) + 
-    geom_histogram(aes(x = QUAL), fill = "#A9A9A9") +
-    geom_vline(xintercept=filter_thresh[1,"QUAL"], color = "red") +
-    xlab("Variant quality score") + ylab("Number of strains") +
-    theme_bw() +
-    presentation + scale_x_continuous(trans="log2")
+pa <- ggplot2::ggplot() + 
+    ggplot2::geom_histogram(data=filter_stats, aes(x = QUAL), fill = "#A9A9A9") +
+    ggplot2::geom_rect(aes(xmax=filter_thresh[1,"QUAL"], xmin=0, ymin=-Inf, ymax=Inf), fill="red", alpha=0.2) +
+    ggplot2::geom_text(data=filter_thresh, aes(x = Inf, y = Inf,
+                                      label=paste0("remove sites < ", QUAL)),
+              vjust = 3, hjust = 1.85,
+              colour="red",
+              size = 4) + 
+    ggplot2::xlab("Variant quality score (QUAL)") + 
+    ggplot2::ylab("Number of sites") +
+    ggplot2::theme_bw() +
+    presentation + 
+    ggplot2::scale_x_continuous(trans="log2", limits = c(10, 8388608)) +
+    ggplot2::scale_y_continuous(labels = scales::comma)
 
-pb <- ggplot(filter_stats) + 
-    geom_histogram(aes(x = QD), fill = "#A9A9A9") +
-    geom_vline(xintercept=filter_thresh[1,"QD"], color = "red") +
-    xlab("Quality over depth") + ylab("Number of strains") +
-    theme_bw() +
-    presentation 
+pb <- ggplot2::ggplot() + 
+    ggplot2::geom_histogram(data=filter_stats, aes(x = QD), fill = "#A9A9A9") + 
+    ggplot2::geom_rect(aes(xmax=filter_thresh[1,"QD"], xmin=-Inf, ymin=-Inf, ymax=Inf), fill="red", alpha=0.2) +
+    ggplot2::geom_text(data=filter_thresh, aes(x = Inf, y = Inf,
+                                      label=paste0("remove sites < ", QD)),
+              vjust = 3, hjust = 1.8,
+              colour="red",
+              size = 4) + 
+    ggplot2::xlab("QUAL normalized by read depth (QD)") + 
+    ggplot2::ylab("Number of sites") +
+    ggplot2::theme_bw() +
+    presentation +
+    ggplot2::scale_y_continuous(labels = scales::comma)
 
-pc <- ggplot(filter_stats) + 
-    geom_histogram(aes(x = SOR), fill = "#A9A9A9") +
-    geom_vline(xintercept=filter_thresh[1,"SOR"], color = "red") +
-    xlab("Strand buas: strand odds ratio") + ylab("Number of strains") +
-    theme_bw() +
-    presentation 
+pc <- ggplot2::ggplot() + 
+    ggplot2::geom_histogram(data=filter_stats, aes(x = SOR), fill = "#A9A9A9") +
+    ggplot2::geom_rect(aes(xmin=filter_thresh[1,"SOR"], xmax=Inf, ymin=-Inf, ymax=Inf), fill="red", alpha=0.2) +
+    ggplot2::geom_text(data=filter_thresh, aes(x = Inf, y = Inf,
+                                      label=paste0("remove sites > ", SOR)),
+              vjust = 3, hjust = 1.22,
+              colour="red",
+              size = 4) + 
+    ggplot2::xlab("Strand bias: strand odds ratio (SOR)") + 
+    ggplot2::ylab("Number of sites") +
+    ggplot2::theme_bw() +
+    presentation +
+    ggplot2::scale_y_continuous(labels = scales::comma)
 
-pd <- ggplot(filter_stats) + 
-    geom_histogram(aes(x = FS), fill = "#A9A9A9") +
-    geom_vline(xintercept=filter_thresh[1,"FS"], color = "red") +
-    xlab("Strand bias: Fisher strand") + ylab("Number of strains") +
-    theme_bw() +
-    presentation + scale_x_continuous(trans="log2")
+pd <- ggplot2::ggplot() + 
+    ggplot2::geom_histogram(data=filter_stats, aes(x = FS), fill = "#A9A9A9") +
+    ggplot2::geom_rect(aes(xmin=filter_thresh[1,"FS"], xmax=Inf, ymin=-Inf, ymax=Inf), fill="red", alpha=0.2) +
+    ggplot2::geom_text(data=filter_thresh, aes(x = Inf, y = Inf,
+                                      label=paste0("remove sites > ", FS)),
+              vjust = 3, hjust = 1.1,
+              colour="red",
+              size = 4) + 
+    ggplot2::xlab("Strand bias: Fisher strand (FS)") + 
+    ggplot2::ylab("Number of sites") +
+    ggplot2::theme_bw() +
+    presentation + 
+    ggplot2::scale_x_continuous(trans="log2") +
+    ggplot2::scale_y_continuous(labels = scales::comma)
 
 (pa | pb) /(pc | pd)
 
@@ -112,28 +138,47 @@ pd <- ggplot(filter_stats) +
 
 
 
-## How many sites were filtered by each filter
-Is this type of plot intuitive?
-```{r filter_type, fig.width=10}
-filter_stats %<>% mutate(FILTER= str_replace_all(FILTER, ";","&"))
+<br>
 
-upset(fromExpression(table(filter_stats$FILTER)), order.by = "freq", text.scale = 1.5)
-# sets=c(""), keep.order = TRUEcan define order for the side plot
+## Number of variant sites removed by each filter
+
+Each bar shows counts of variant sites removed by the combinations of filters indicated by the dots below.
+
+
+```{r filter_type, fig.width=8}
+
+filter_stats %<>%
+    dplyr::mutate(FILTER= str_replace_all(FILTER, "SOR_strand_odds_ratio","SOR")) %>% 
+    dplyr::mutate(FILTER= str_replace_all(FILTER, "QD_quality_by_depth","QD")) %>% 
+    dplyr::mutate(FILTER= str_replace_all(FILTER, "high_heterozygosity","high_het")) %>% 
+    dplyr::mutate(FILTER= str_replace_all(FILTER, "FS_fisherstrand","FS")) %>%
+    dplyr::mutate(FILTER= str_replace_all(FILTER, "QUAL_quality","QUAL")) %>% 
+    dplyr::mutate(FILTER= str_split(FILTER, ";")) 
+
+filter_stats %>% 
+    ggplot2::ggplot(aes(x=FILTER)) + 
+    geom_bar() + 
+    scale_x_upset(n_intersections = 20) + 
+    ylab("Number of variant sites") + 
+    theme_bw() + 
+    presentation + 
+    scale_y_continuous(labels = scales::comma)
+
 ```
 
+<br>
 
+## Pre-filter statistics
 
-## Soft filter stats 
-Count for each strain. 
+Variant counts for each strain based on vcf containing all variant sites called by GATK ("soft-filter.vcf"). 
 
-Note total_SNV = nNonRefHom + nHets. Please correct me if this is wrong.
 ```{r per_sample_count_soft_filter}
 # soft filter (before filter)
 # SNV
 PSC_soft <- stats_soft_filter[c(grep(pattern = "PSC", x = stats_soft_filter))]
 PSC_soft_df <- read.table(text = PSC_soft, sep = "\t", header = F)
 
-PSC_header <- stats_soft_filter[c(grep(pattern = "PSC.*Het", x = stats_soft_filter))]
+PSC_header <- stats_soft_filter[c(grep(pattern = "PSC.*id.*sample", x = stats_soft_filter))]
 split_header <- str_replace_all(PSC_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
 names(PSC_soft_df) <- split_header[[1]]
 
@@ -141,48 +186,83 @@ names(PSC_soft_df) <- split_header[[1]]
 PSI_soft <- stats_soft_filter[c(grep(pattern = "PSI", x = stats_soft_filter))]
 PSI_soft_df <- read.table(text = PSI_soft, sep = "\t", header = F)
 
-PSI_header <- stats_soft_filter[c(grep(pattern = "PSI.*Het", x = stats_soft_filter))]
+PSI_header <- stats_soft_filter[c(grep(pattern = "PSI.*id.*sample", x = stats_soft_filter))]
 split_header <- str_replace_all(PSI_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
 names(PSI_soft_df) <- split_header[[1]]
 
-PSI_soft_df %<>% select(sample, nHets) %>% rename(Indel_nHets = nHets) 
+PSI_soft_df %<>% 
+    dplyr::select(sample, nInsHets, nDelHets) %>% 
+    dplyr::mutate(nHetIndels = nInsHets + nDelHets) 
 
 # combine SNV and Indel
-PSC_soft_df %<>% mutate(total_SNV = nNonRefHom+nHets) %>% inner_join(PSI_soft_df, by="sample") 
+PSC_soft_df %<>% 
+    dplyr::mutate(total_SNV = nNonRefHom+nHets) %>% 
+    dplyr::mutate(het_SNV_rate = round( nHets/total_SNV, digits = 2))  %>% 
+    dplyr::inner_join(PSI_soft_df, by="sample") %>% 
+    dplyr::mutate(het_Indel_rate = round( nHetIndels/nIndels, digits = 2)) 
 
-DT::datatable(select(PSC_soft_df, sample, total_SNV, nHets, nIndels, Indel_nHets, nSingletons, nMissing), colnames = c("Strain", "Total SNVs", "Het SNVs", "Total Indels", "Het Indels", "Private SNVs and Indels", "Missing"))
+DT::datatable(dplyr::select(PSC_soft_df, sample, total_SNV, nHets, het_SNV_rate, nIndels, nHetIndels, het_Indel_rate, nSingletons, nMissing), 
+              colnames = c("Strain", "Total SNVs", "Het SNVs", "Het SNVs/Total SNVs", "Total Indels", "Het Indels", "Het Indels/Total Indels", "Private SNVs and Indels", "Missing"),
+              rownames = F,
+              options = list(pageLength = 5000, scrollY = 400, dom = 'ft'),
+              extensions = c("Scroller"))
 ```
 
 
-```{r plot_SNV_Indel_count_soft, fig.width=5, fig.height=4}
+```{r plot_SNV_Indel_count_soft, fig.width=8, fig.height=6}
 
-p1 <- ggplot(PSC_soft_df) + 
-    geom_histogram(aes(x = total_SNV, plotly_label=sample), fill = "#A9A9A9") +
-    theme_bw() +
-    presentation  + xlab("Total SNVs")
+p01 <- ggplot2::ggplot(PSC_soft_df) + 
+    ggplot2::geom_histogram(aes(x = het_SNV_rate, plotly_label=sample), fill = "#A9A9A9") +
+    ggplot2::theme_bw() +
+    presentation  + 
+    ggplot2::xlab("Het SNVs/Total SNVs") + 
+    ggplot2::ylab("Number of strains") +
+    ggplot2::scale_y_continuous(labels = scales::comma)
 
-ggplotly(p1, tooltip="plotly_label")
+
+p02 <- ggplot2::ggplot(PSC_soft_df) + 
+    ggplot2::geom_histogram(aes(x = het_Indel_rate, plotly_label=sample), fill = "#A9A9A9") +
+    ggplot2::theme_bw() +
+    presentation  + 
+    ggplot2::xlab("Het Indels/Total Indels") + 
+    ggplot2::ylab("Number of strains") +
+    ggplot2::scale_y_continuous(labels = scales::comma)
 
 
-p2 <- ggplot(PSC_soft_df) + 
-    geom_histogram(aes(x = nIndels, plotly_label=sample), fill = "#A9A9A9") +
-    theme_bw() +
-    presentation + xlab("Total Indels")
+p1 <- ggplot2::ggplot(PSC_soft_df) + 
+    ggplot2::geom_histogram(aes(x = total_SNV, plotly_label=sample), fill = "#A9A9A9") +
+    ggplot2::theme_bw() +
+    presentation  + 
+    ggplot2::xlab("Number of SNVs per strain") + 
+    ggplot2::ylab("Number of strains") + 
+    ggplot2::scale_x_continuous(labels = scales::comma)
 
-ggplotly(p2, tooltip="plotly_label")
+
+p2 <- ggplot2::ggplot(PSC_soft_df) + 
+    ggplot2::geom_histogram(aes(x = nIndels, plotly_label=sample), fill = "#A9A9A9") +
+    ggplot2::theme_bw() +
+    presentation + 
+    ggplot2::xlab("Number of Indels per strain") + 
+    ggplot2::ylab("Number of strains") + 
+    ggplot2::scale_x_continuous(labels = scales::comma)
+
+(p01+p1) / (p02+p2)
 
 ```
 
+<br>
 
-## Hard filter stats
-Count for each strain. 
+## Post-filter statistics
+
+Variant count for each strain based on the VCF containing only sites pass all filters ("hard-filter.vcf"). All heterozygous sites on main chromosomes were converted to either homozygous or missing. The remaining heterozygous sites are all located on mitochondria chromosomes. 
+
 ```{r per_sample_count_hard_filter}
 # hard filter (after filter)
 # SNV
 PSC_hard <- stats_hard_filter[c(grep(pattern = "PSC", x = stats_hard_filter))]
 PSC_hard_df <- read.table(text = PSC_hard, sep = "\t", header = F)
 
-PSC_header <- stats_hard_filter[c(grep(pattern = "PSC.*Het", x = stats_hard_filter))]
+PSC_header <- stats_hard_filter[c(grep(pattern = "PSC.*id.*sample", x = stats_hard_filter))]
 split_header <- str_replace_all(PSC_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
 names(PSC_hard_df) <- split_header[[1]]
 
@@ -190,33 +270,72 @@ names(PSC_hard_df) <- split_header[[1]]
 PSI_hard <- stats_hard_filter[c(grep(pattern = "PSI", x = stats_hard_filter))]
 PSI_hard_df <- read.table(text = PSI_hard, sep = "\t", header = F)
 
-PSI_header <- stats_hard_filter[c(grep(pattern = "PSI.*Het", x = stats_hard_filter))]
+PSI_header <- stats_hard_filter[c(grep(pattern = "PSI.*id.*sample", x = stats_hard_filter))]
 split_header <- str_replace_all(PSI_header,"[:digit:]|\\[|\\]","") %>% strsplit("\t")
-names(PSI_hard_df) <- split_header[[1]]
+names(PSI_hard_df) = split_header[[1]]
 
-PSI_hard_df %<>% select(sample, nHets) %>% rename(Indel_nHets = nHets) 
+PSI_hard_df %<>% 
+    dplyr::select(sample, nInsHets, nDelHets) %>% 
+    dplyr::mutate(nHetIndels = nInsHets + nDelHets)
 
 # combine SNV and Indel
-PSC_hard_df %<>% mutate(total_SNV = nNonRefHom+nHets) %>% inner_join(PSI_hard_df, by="sample") 
+PSC_hard_df %<>% 
+    dplyr::mutate(total_SNV = nNonRefHom+nHets) %>% 
+    dplyr::mutate(het_SNV_rate = round( nHets/total_SNV, digits = 2))  %>% 
+    dplyr::inner_join(PSI_hard_df, by="sample") %>% 
+    dplyr::mutate(het_Indel_rate = round( nHetIndels/nIndels, digits = 2)) 
 
-DT::datatable(select(PSC_hard_df, sample, total_SNV, nHets, nIndels, Indel_nHets, nSingletons, nMissing), colnames = c("Strain", "Total SNVs", "Het SNVs", "Total Indels", "Het Indels", "Private SNVs and Indels", "Missing"))
+DT::datatable(dplyr::select(PSC_hard_df, sample, total_SNV, nHets, het_SNV_rate, nIndels, nHetIndels, het_Indel_rate, nSingletons, nMissing), 
+              colnames = c("Strain", "Total SNVs", "Het SNVs", "Het SNVs/Total SNVs", "Total Indels", "Het Indels", "Het Indels/Total Indels", "Private SNVs and Indels", "Missing"),
+              rownames = F,
+              options = list(pageLength = 5000, scrollY = 400, dom = 'ft'),
+              extensions = c("Scroller"))
 ```
 
 
 
-```{r plot_SNV_Indel_count_hard, fig.width=5, fig.height=4}
-p3 <- ggplot(PSC_hard_df) + 
-    geom_histogram(aes(x = total_SNV, plotly_label=sample), fill = "#A9A9A9") +
-    theme_bw() +
-    presentation  + xlab("Total SNVs")
+```{r plot_SNV_Indel_count_hard, out.width='70%'}
+p3 <- ggplot2::ggplot(PSC_hard_df) + 
+    ggplot2::geom_histogram(aes(x = total_SNV, plotly_label=sample), fill = "#A9A9A9") +
+    ggplot2::theme_bw() +
+    presentation  + 
+    ggplot2::xlab("Number of SNVs per strain") + 
+    ggplot2::ylab("Number of strains") + 
+    ggplot2::scale_x_continuous(labels = scales::comma)
 
-ggplotly(p3, tooltip="plotly_label")
+plotly::ggplotly(p3, tooltip="plotly_label")
 
 
-p4 <- ggplot(PSC_hard_df) + 
-    geom_histogram(aes(x = nIndels, plotly_label=sample), fill = "#A9A9A9") +
-    theme_bw() +
-    presentation  + xlab("Total Indels")
+p4 <- ggplot2::ggplot(PSC_hard_df) + 
+    ggplot2::geom_histogram(aes(x = nIndels, plotly_label=sample), fill = "#A9A9A9") +
+    ggplot2::theme_bw() +
+    presentation  + 
+    ggplot2::xlab("Number of Indels per strain") + 
+    ggplot2::ylab("Number of strains") + 
+    ggplot2::scale_x_continuous(labels = scales::comma)
 
-ggplotly(p4, tooltip="plotly_label")
+plotly::ggplotly(p4, tooltip="plotly_label")
+
+```
+
+<br>
+
+
+## Relationship between heterozyous SNVs and total SNVs
+
+Number of variants versus the number of heterozygous calls shows strains that might have mixed genotypes or low quality calls (high het but low variation).
+
+```{r, out.width='70%'}
+p = PSC_soft_df %>% 
+    dplyr::inner_join(PSC_hard_df, by="sample") %>% 
+    ggplot2::ggplot() + 
+    ggplot2::geom_point(aes(x=nHets.x, y=total_SNV.y, plotly_label=sample), size=1, alpha=0.5) + 
+    ggplot2::xlab("Number of het SNVs before filter") + 
+    ggplot2::ylab("Number of total SNVs post filter") + 
+    ggplot2::scale_x_continuous(labels = scales::comma) +
+    ggplot2::scale_y_continuous(labels = scales::comma) + 
+    ggplot2::theme_light()
+
+plotly::ggplotly(p, tooltip="plotly_label")
+
 ```

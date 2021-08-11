@@ -30,7 +30,7 @@ params.R_libpath = "/projects/b1059/software/R_lib_3.6.0/"
 
 // Debug
 if (params.debug) {
-    params.species == "c_elegans"
+    params.species = "c_elegans"
     params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
     params.bam_location = "${workflow.projectDir}" // Use this to specify the directory for bams
@@ -549,8 +549,6 @@ process html_report {
 
     label 'R'
 
-    conda "/projects/b1059/software/conda_envs/cegwas2-nf_env"
-
     publishDir "${params.output}", mode: 'copy'
 
     input:
@@ -564,7 +562,7 @@ process html_report {
 
     cat "${workflow.projectDir}/bin/gatk_report.Rmd" | \\
         sed -e 's/RELEASE_DATE/${date}/g' > gatk_report_${date}.Rmd
-    Rscript -e "rmarkdown::render('gatk_report_${date}.Rmd', knit_root_dir='${workflow.launchDir}/${params.out}')"
+    Rscript -e "rmarkdown::render('gatk_report_${date}.Rmd', knit_root_dir='${workflow.launchDir}/${params.output}')"
         
     """
 
