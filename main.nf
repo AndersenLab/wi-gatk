@@ -19,7 +19,7 @@ nextflow.preview.dsl=2
 */
 
 date = new Date().format( 'yyyyMMdd' )
-params.bam_location = "" // Use this to specify the directory for bams
+params.bam_location = "/projects/b1059/data/${params.species}/WI/alignments/" // Use this to specify the directory for bams
 params.mito_name = "MtDNA" // Name of contig to skip het polarization
 
 
