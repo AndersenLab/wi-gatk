@@ -41,7 +41,7 @@ if (params.debug) {
 // set default project and ws build for species
 if(params.species == "c_elegans") {
     params.project="PRJNA13758"
-    params.ws_build="WS276"
+    params.ws_build="WS283"
 } else if(params.species == "c_briggsae") {
     params.project="QX1410_nanopore"
     params.ws_build="Feb2020"
