@@ -7,7 +7,6 @@ The new GATK-based pipeline for wild isolate C. elegans strains
 
 ### Typical use for debugging:
 ```
-nextflow main.nf --debug          # this will request the same amount of resources as a regular run
 nextflow main.nf -profile debug   # this will request less resources and queue less
 ```
 
