@@ -547,7 +547,7 @@ process multiqc_report {
 // gatk report for cendr
 process html_report {
 
-    label 'R'
+    container 'andersenlab/r_packages:latest'
 
     publishDir "${params.output}", mode: 'copy'
 
@@ -558,7 +558,7 @@ process html_report {
         file("*.html")
 
     """
-    echo ".libPaths(c(\\"${params.R_libpath}\\", .libPaths() ))" > .Rprofile
+    # echo ".libPaths(c(\\"${params.R_libpath}\\", .libPaths() ))" > .Rprofile
 
     cat "${workflow.projectDir}/bin/gatk_report.Rmd" | \\
         sed -e 's/RELEASE_DATE/${date}/g' > gatk_report_${date}.Rmd

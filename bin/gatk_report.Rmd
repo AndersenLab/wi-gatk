@@ -9,13 +9,10 @@ editor_options:
 
 
 ```{r setup, echo=F, warning=FALSE, message=FALSE}
-library(dplyr)
-library(tidyr)
-library(stringr)
+library(tidyverse)
 library(knitr)
 library(DT)
 library(ggupset)
-library(ggplot2)
 library(magrittr)
 library(plotly)
 library(glue)
@@ -67,7 +64,7 @@ SN_hard_df <- read.table(text = SN_hard, sep = "\t")
 filter_stats <- readr::read_tsv(glue("variation/WI.{vcf_date}.soft-filter.filter_stats.txt")) 
 
 filter_stats %<>% 
-    dplyr::mutate( QUAL=as.numeric(QUAL), QD=as.numeric(QD), SOR=as.numeric(SOR), FS=as.numeric(FS)) # %>% slice(1:5000)
+  dplyr::mutate( QUAL=as.numeric(QUAL), QD=as.numeric(QD), SOR=as.numeric(SOR), FS=as.numeric(FS)) # %>% slice(1:5000)
 
 filter_thresh <- data.frame(QUAL = 30,
                            QD = 20,
@@ -82,8 +79,7 @@ pa <- ggplot2::ggplot() +
               vjust = 3, hjust = 1.85,
               colour="red",
               size = 4) + 
-    ggplot2::xlab("Variant quality score (QUAL)") + 
-    ggplot2::ylab("Number of sites") +
+    ggplot2::xlab("Variant quality score (QUAL)") + ylab("Number of sites") +
     ggplot2::theme_bw() +
     presentation + 
     ggplot2::scale_x_continuous(trans="log2", limits = c(10, 8388608)) +
@@ -97,8 +93,7 @@ pb <- ggplot2::ggplot() +
               vjust = 3, hjust = 1.8,
               colour="red",
               size = 4) + 
-    ggplot2::xlab("QUAL normalized by read depth (QD)") + 
-    ggplot2::ylab("Number of sites") +
+    ggplot2::xlab("QUAL normalized by read depth (QD)") + ylab("Number of sites") +
     ggplot2::theme_bw() +
     presentation +
     ggplot2::scale_y_continuous(labels = scales::comma)
@@ -111,8 +106,7 @@ pc <- ggplot2::ggplot() +
               vjust = 3, hjust = 1.22,
               colour="red",
               size = 4) + 
-    ggplot2::xlab("Strand bias: strand odds ratio (SOR)") + 
-    ggplot2::ylab("Number of sites") +
+    ggplot2::xlab("Strand bias: strand odds ratio (SOR)") + ylab("Number of sites") +
     ggplot2::theme_bw() +
     presentation +
     ggplot2::scale_y_continuous(labels = scales::comma)
@@ -125,8 +119,7 @@ pd <- ggplot2::ggplot() +
               vjust = 3, hjust = 1.1,
               colour="red",
               size = 4) + 
-    ggplot2::xlab("Strand bias: Fisher strand (FS)") + 
-    ggplot2::ylab("Number of sites") +
+    ggplot2::xlab("Strand bias: Fisher strand (FS)") + ylab("Number of sites") +
     ggplot2::theme_bw() +
     presentation + 
     ggplot2::scale_x_continuous(trans="log2") +
@@ -157,12 +150,12 @@ filter_stats %<>%
 
 filter_stats %>% 
     ggplot2::ggplot(aes(x=FILTER)) + 
-    geom_bar() + 
-    scale_x_upset(n_intersections = 20) + 
-    ylab("Number of variant sites") + 
-    theme_bw() + 
+    ggplot2::geom_bar() + 
+    ggupset::scale_x_upset(n_intersections = 20) + 
+    ggplot2::ylab("Number of variant sites") + 
+    ggplot2::theme_bw() + 
     presentation + 
-    scale_y_continuous(labels = scales::comma)
+    ggplot2::scale_y_continuous(labels = scales::comma)
 
 ```
 
@@ -201,7 +194,8 @@ PSC_soft_df %<>%
     dplyr::inner_join(PSI_soft_df, by="sample") %>% 
     dplyr::mutate(het_Indel_rate = round( nHetIndels/nIndels, digits = 2)) 
 
-DT::datatable(dplyr::select(PSC_soft_df, sample, total_SNV, nHets, het_SNV_rate, nIndels, nHetIndels, het_Indel_rate, nSingletons, nMissing), 
+DT::datatable(PSC_soft_df %>%
+                  dplyr::select(sample, total_SNV, nHets, het_SNV_rate, nIndels, nHetIndels, het_Indel_rate, nSingletons, nMissing), 
               colnames = c("Strain", "Total SNVs", "Het SNVs", "Het SNVs/Total SNVs", "Total Indels", "Het Indels", "Het Indels/Total Indels", "Private SNVs and Indels", "Missing"),
               rownames = F,
               options = list(pageLength = 5000, scrollY = 400, dom = 'ft'),
@@ -214,18 +208,14 @@ DT::datatable(dplyr::select(PSC_soft_df, sample, total_SNV, nHets, het_SNV_rate,
 p01 <- ggplot2::ggplot(PSC_soft_df) + 
     ggplot2::geom_histogram(aes(x = het_SNV_rate, plotly_label=sample), fill = "#A9A9A9") +
     ggplot2::theme_bw() +
-    presentation  + 
-    ggplot2::xlab("Het SNVs/Total SNVs") + 
-    ggplot2::ylab("Number of strains") +
+    presentation  + xlab("Het SNVs/Total SNVs") + ylab("Number of strains") +
     ggplot2::scale_y_continuous(labels = scales::comma)
 
 
 p02 <- ggplot2::ggplot(PSC_soft_df) + 
     ggplot2::geom_histogram(aes(x = het_Indel_rate, plotly_label=sample), fill = "#A9A9A9") +
     ggplot2::theme_bw() +
-    presentation  + 
-    ggplot2::xlab("Het Indels/Total Indels") + 
-    ggplot2::ylab("Number of strains") +
+    presentation  + xlab("Het Indels/Total Indels") + ylab("Number of strains") +
     ggplot2::scale_y_continuous(labels = scales::comma)
 
 
@@ -285,7 +275,8 @@ PSC_hard_df %<>%
     dplyr::inner_join(PSI_hard_df, by="sample") %>% 
     dplyr::mutate(het_Indel_rate = round( nHetIndels/nIndels, digits = 2)) 
 
-DT::datatable(dplyr::select(PSC_hard_df, sample, total_SNV, nHets, het_SNV_rate, nIndels, nHetIndels, het_Indel_rate, nSingletons, nMissing), 
+DT::datatable(PSC_hard_df %>%
+                  dplyr::select(sample, total_SNV, nHets, het_SNV_rate, nIndels, nHetIndels, het_Indel_rate, nSingletons, nMissing), 
               colnames = c("Strain", "Total SNVs", "Het SNVs", "Het SNVs/Total SNVs", "Total Indels", "Het Indels", "Het Indels/Total Indels", "Private SNVs and Indels", "Missing"),
               rownames = F,
               options = list(pageLength = 5000, scrollY = 400, dom = 'ft'),
