@@ -19,7 +19,7 @@ nextflow.preview.dsl=2
 */
 
 date = new Date().format( 'yyyyMMdd' )
-params.bam_location = "" // Use this to specify the directory for bams
+params.bam_location = "/projects/b1059/data/${params.species}/WI/alignments/" // Use this to specify the directory for bams
 params.mito_name = "MtDNA" // Name of contig to skip het polarization
 params.R_libpath = "/projects/b1059/software/R_lib_3.6.0/"
 
@@ -43,7 +43,7 @@ if (params.debug) {
 // set default project and ws build for species
 if(params.species == "c_elegans") {
     params.project="PRJNA13758"
-    params.ws_build="WS276"
+    params.ws_build="WS283"
 } else if(params.species == "c_briggsae") {
     params.project="QX1410_nanopore"
     params.ws_build="Feb2020"
@@ -155,7 +155,7 @@ sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
 workflow {
 
     // Generate a summary of the current run
-    summary(Channel.from("run"))
+    summary(Channel.from("run").combine(Channel.from("${params.sample_sheet}")))
 
     // Get contigs from first bam
     sample_sheet.first() | get_contigs
@@ -172,7 +172,7 @@ workflow {
     // gatk genomics db
     sample_map = sample_sheet.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
     concat_strain_gvcfs.out.flatten()
-                           .toList()
+                           .collect() // .toList() might be causing this process to always repeat, try switching to collect (https://gitter.im/nextflow-io/nextflow/archives/2018/10/08)
                            .map { [it] }
                            .combine(contigs)
                            .combine(sample_map) | \
@@ -203,7 +203,7 @@ process summary {
     publishDir "${params.output}", mode: 'copy'
     
     input:
-        val(run)
+        tuple val(run), path("sample_sheet")
 
     output:
         path("sample_sheet.tsv")
@@ -211,7 +211,7 @@ process summary {
 
     """
         echo '''${log_summary()}''' > summary.txt
-        cat ${params.sample_sheet} > sample_sheet.tsv
+        cat ${sample_sheet} > sample_sheet.tsv
     """
 
 }
@@ -307,7 +307,7 @@ process concat_strain_gvcfs {
  process import_genomics_db {
 
     tag { "${contig}" }
-    label 'lg'
+    label 'xl'
 
     input:
         tuple path(vcfs), contig, path(sample_map)
