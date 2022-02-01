@@ -153,7 +153,7 @@ sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
 workflow {
 
     // Generate a summary of the current run
-    summary(Channel.from("run"))
+    summary(Channel.from("run").combine(Channel.from("${params.sample_sheet}")))
 
     // Get contigs from first bam
     sample_sheet.first() | get_contigs
@@ -170,7 +170,7 @@ workflow {
     // gatk genomics db
     sample_map = sample_sheet.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
     concat_strain_gvcfs.out.flatten()
-                           .toList()
+                           .collect() // .toList() might be causing this process to always repeat, try switching to collect (https://gitter.im/nextflow-io/nextflow/archives/2018/10/08)
                            .map { [it] }
                            .combine(contigs)
                            .combine(sample_map) | \
@@ -200,7 +200,7 @@ process summary {
     publishDir "${params.output}", mode: 'copy'
     
     input:
-        val(run)
+        tuple val(run), path("sample_sheet")
 
     output:
         path("sample_sheet.tsv")
@@ -208,7 +208,7 @@ process summary {
 
     """
         echo '''${log_summary()}''' > summary.txt
-        cat ${params.sample_sheet} > sample_sheet.tsv
+        cat ${sample_sheet} > sample_sheet.tsv
     """
 
 }
@@ -304,7 +304,7 @@ process concat_strain_gvcfs {
  process import_genomics_db {
 
     tag { "${contig}" }
-    label 'lg'
+    label 'xl'
 
     input:
         tuple path(vcfs), contig, path(sample_map)
