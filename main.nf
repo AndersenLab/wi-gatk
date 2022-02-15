@@ -174,7 +174,7 @@ workflow {
 
     // Call individual variants
     sample_sheet.combine(contigs)
-        .combine(Channel.from("${params.reference}")) | call_variants_individual
+        .combine(Channel.fromPath("${params.reference}")) | call_variants_individual
 
     call_variants_individual.out.groupTuple()
                                 .map { strain, vcf -> [strain, vcf]}
@@ -189,14 +189,14 @@ workflow {
                            .combine(contigs)
                            .combine(sample_map) | \
                         import_genomics_db
-                        .combine(Channel.from("${params.reference}")) | \
+                        .combine(Channel.fromPath("${params.reference}")) | \
                         genotype_cohort_gvcf_db
 
 
     // Combine VCF and filter
     genotype_cohort_gvcf_db.out.collect() | concatenate_vcf
     concatenate_vcf.out.vcf
-        .combine(Channel.from("${params.reference}")) | soft_filter
+        .combine(Channel.fromPath("${params.reference}")) | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
 
