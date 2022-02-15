@@ -172,9 +172,15 @@ workflow {
     sample_sheet.first() | get_contigs
     contigs = get_contigs.out.splitText { it.strip() }
 
+    // create reference channel
+    refs = Channel.fromPath("${params.reference}")
+        .combine(Channel.fromPath("${params.reference}.fai"))
+        .combine(Channel.fromPath("${params.reference.replaceFirst(/.fa.gz/, ".dict")}"))
+        .combine(Channel.fromPath("${params.reference}.gzi"))
+
     // Call individual variants
     sample_sheet.combine(contigs)
-        .combine(Channel.fromPath("${params.reference}")) | call_variants_individual
+        .combine(refs)| call_variants_individual
 
     call_variants_individual.out.groupTuple()
                                 .map { strain, vcf -> [strain, vcf]}
@@ -189,14 +195,15 @@ workflow {
                            .combine(contigs)
                            .combine(sample_map) | \
                         import_genomics_db
-                        .combine(Channel.fromPath("${params.reference}")) | \
-                        genotype_cohort_gvcf_db
+    import_genomics_db.out
+        .combine(refs) | \
+        genotype_cohort_gvcf_db
 
 
     // Combine VCF and filter
     genotype_cohort_gvcf_db.out.collect() | concatenate_vcf
     concatenate_vcf.out.vcf
-        .combine(Channel.fromPath("${params.reference}")) | soft_filter
+        .combine(refs) | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
 
@@ -261,12 +268,16 @@ process call_variants_individual {
     tag { "${strain}:${region}" }
 
     input:
-        tuple strain, path(bam), path(bai), val(region), path("ref_file")
+        tuple strain, path(bam), path(bai), val(region), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
 
     output:
         tuple strain, path("${region}.g.vcf.gz")
 
     """
+    cp ${ref_file} ./ref.fa.gz
+    cp ${ref_index} ./ref.fa.gz.fai
+    cp ${ref_dict} ./ref.dict
+    cp ${ref_gzi} ./ref.fa.gz.gzi
         gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
             --emit-ref-confidence GVCF \\
             --annotation DepthPerAlleleBySample \\
@@ -285,7 +296,7 @@ process call_variants_individual {
             --annotation-group AS_StandardAnnotation \\
             --annotation-group StandardHCAnnotation \\
             --do-not-run-physical-phasing \\
-            -R ${ref_file} \\
+            -R ref.fa.gz \\
             -I ${bam} \\
             -L ${region} \\
             -O ${region}.g.vcf   
@@ -351,7 +362,7 @@ process genotype_cohort_gvcf_db {
     label 'xl'
 
     input:
-        tuple val(contig), file("${contig}.db"), file("ref_file")
+        tuple val(contig), file("${contig}.db"), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
 
     output:
         tuple file("${contig}_cohort_pol.vcf.gz"), file("${contig}_cohort_pol.vcf.gz.csi")
@@ -362,9 +373,14 @@ process genotype_cohort_gvcf_db {
     */
 
     """
+    cp ${ref_file} ./ref.fa.gz
+    cp ${ref_index} ./ref.fa.gz.fai
+    cp ${ref_dict} ./ref.dict
+    cp ${ref_gzi} ./ref.fa.gz.gzi
+
         gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             GenotypeGVCFs \\
-            -R ${ref_file} \\
+            -R ref.fa.gz \\
             -V gendb://${contig}.db \\
             -G StandardAnnotation \\
             -G AS_StandardAnnotation \\
@@ -425,7 +441,7 @@ process soft_filter {
     label 'lg'
 
     input:
-        tuple path(vcf), path(vcf_index), path("ref_file")
+        tuple path(vcf), path(vcf_index), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
 
     output:
         tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
@@ -435,6 +451,11 @@ process soft_filter {
     
 
     """
+    cp ${ref_file} ./ref.fa.gz
+    cp ${ref_index} ./ref.fa.gz.fai
+    cp ${ref_dict} ./ref.dict
+    cp ${ref_gzi} ./ref.fa.gz.gzi
+
         function cleanup {
             rm out.vcf.gz
         }
@@ -442,7 +463,7 @@ process soft_filter {
 
         gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             VariantFiltration \\
-            -R ${ref_file} \\
+            -R ref.fa.gz \\
             --variant ${vcf} \\
             --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "DP_min_depth" \\
             --filter-expression "QUAL < ${params.qual}"                --filter-name "QUAL_quality" \\
