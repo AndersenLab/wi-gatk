@@ -211,7 +211,9 @@ workflow {
     soft_filter.out.soft_vcf_stats.concat(
         hard_filter.out.hard_vcf_stats
     ).collect() | multiqc_report
-    multiqc_report.out.for_report | html_report
+    multiqc_report.out.for_report
+        .combine(soft_filter.out.soft_report)
+        .combine(hard_filter.out.hard_vcf_stats).view() | html_report
 
 }
 
@@ -447,7 +449,7 @@ process soft_filter {
         tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
         path "WI.${date}.soft-filter.vcf.gz.tbi"
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
-        path "WI.${date}.soft-filter.filter_stats.txt"
+        tuple path("WI.${date}.soft-filter.filter_stats.txt"), path("WI.${date}.soft-filter.stats.txt"), emit: 'soft_report'
     
 
     """
@@ -587,17 +589,18 @@ process html_report {
     publishDir "${params.output}", mode: 'copy'
 
     input:
-        path("*")
+        tuple path("multiqc.html"), path("soft_filter_filter"), path("soft_filter_stats"), path("hard_filter_stats")
 
     output:
         file("*.html")
 
     """
-    # echo ".libPaths(c(\\"${params.R_libpath}\\", .libPaths() ))" > .Rprofile
-
     cat "${workflow.projectDir}/bin/gatk_report.Rmd" | \\
-        sed -e 's/RELEASE_DATE/${date}/g' > gatk_report_${date}.Rmd
-    Rscript -e "rmarkdown::render('gatk_report_${date}.Rmd', knit_root_dir='${workflow.launchDir}/${params.output}')"
+        sed -e 's/RELEASE_DATE/${date}/g' |
+        sed -e 's+variation/WI.{vcf_date}.soft-filter.stats.txt+${soft_filter_stats}+g' |
+        sed -e 's+variation/WI.{vcf_date}.hard-filter.stats.txt+${hard_filter_stats}+g' |
+        sed -e 's+variation/WI.{vcf_date}.soft-filter.filter_stats.txt+${soft_filter_filter}+g' > gatk_report_${date}.Rmd
+    Rscript -e "rmarkdown::render('gatk_report_${date}.Rmd')"
         
     """
 
