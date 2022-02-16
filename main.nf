@@ -19,7 +19,6 @@ nextflow.preview.dsl=2
 */
 
 date = new Date().format( 'yyyyMMdd' )
-params.bam_location = "/projects/b1059/data/${params.species}/WI/alignments/" // Use this to specify the directory for bams
 params.mito_name = "MtDNA" // Name of contig to skip het polarization
 params.R_libpath = "/projects/b1059/software/R_lib_3.6.0/"
 
@@ -33,11 +32,22 @@ if (params.debug) {
     params.species = "c_elegans"
     params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
-    params.bam_location = "${workflow.projectDir}" // Use this to specify the directory for bams
+    // this is stupid, I'm not sure why it isn't working
+    if(params.bam_location == " ") {
+        bam_folder = "${params.bam_location}"
+    } else {
+        bam_folder = "${workflow.projectDir}"
+    }
 } else {
     // The strain sheet that used for 'production' is located in the root of the git repo
     params.output = "WI-${date}"
     params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
+    if(params.bam_location == " ") {
+        bam_folder = "${params.bam_location}"
+    } else {
+        bam_folder = "/projects/b1059/data/${params.species}/WI/alignments/"
+    }
+    params.bam_location = "/projects/b1059/data/${params.species}/WI/alignments/" // Use this to specify the directory for bams
 }
 
 // set default project and ws build for species
@@ -51,6 +61,7 @@ if(params.species == "c_elegans") {
     params.project="NIC58_nanopore"
     params.ws_build="June2021"
 }
+
 
 // check reference
 if(params.species == "c_elegans" | params.species == "c_briggsae" | params.species == "c_tropicalis") {
@@ -82,7 +93,6 @@ params.high_missing = 0.95
 params.high_heterozygosity = 0.10
 
 
-
 def log_summary() {
 
     out =  '''
@@ -106,7 +116,7 @@ nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/proj
     --debug                    Use --debug to indicate debug mode    ${params.debug}
     --output                   Release Directory                     ${params.output}
     --sample_sheet             Sample sheet                          ${params.sample_sheet}
-    --bam_location             Directory of bam files                ${params.bam_location}
+    --bam_location             Directory of bam files                ${bam_folder}
     --reference                Reference Genome                      ${params.reference}
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
     --username                                                       ${"whoami".execute().in.text}
@@ -138,15 +148,16 @@ if (params.help) {
 }
 
 
+
 // Read sample sheet
 sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
                        .ifEmpty { exit 1, "sample sheet not found" }
                        .splitCsv(header:true, sep: "\t")
                        .map { row -> 
                                     // Optionally allow user to specify a bam location
-                                    if (params.bam_location != "") {
-                                        row.bam = "${params.bam_location}/${row.bam}"
-                                    }           
+                                    // if (bam_folder != "") {
+                                    row.bam = "${bam_folder}/${row.bam}"
+                                    // }           
                                     [row.strain,
                                      file("${row.bam}", checkIfExists: true),
                                      file("${row.bam}.bai", checkIfExists: true)] }
@@ -161,8 +172,15 @@ workflow {
     sample_sheet.first() | get_contigs
     contigs = get_contigs.out.splitText { it.strip() }
 
+    // create reference channel
+    refs = Channel.fromPath("${params.reference}")
+        .combine(Channel.fromPath("${params.reference}.fai"))
+        .combine(Channel.fromPath("${params.reference.replaceFirst(/.fa.gz/, ".dict")}"))
+        .combine(Channel.fromPath("${params.reference}.gzi"))
+
     // Call individual variants
-    sample_sheet.combine(contigs) | call_variants_individual
+    sample_sheet.combine(contigs)
+        .combine(refs)| call_variants_individual
 
     call_variants_individual.out.groupTuple()
                                 .map { strain, vcf -> [strain, vcf]}
@@ -176,13 +194,16 @@ workflow {
                            .map { [it] }
                            .combine(contigs)
                            .combine(sample_map) | \
-                        import_genomics_db | \
-                        genotype_cohort_gvcf_db
+                        import_genomics_db
+    import_genomics_db.out
+        .combine(refs) | \
+        genotype_cohort_gvcf_db
 
 
     // Combine VCF and filter
     genotype_cohort_gvcf_db.out.collect() | concatenate_vcf
-    concatenate_vcf.out.vcf | soft_filter
+    concatenate_vcf.out.vcf
+        .combine(refs) | soft_filter
     soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
 
@@ -190,7 +211,9 @@ workflow {
     soft_filter.out.soft_vcf_stats.concat(
         hard_filter.out.hard_vcf_stats
     ).collect() | multiqc_report
-    multiqc_report.out.for_report | html_report
+    multiqc_report.out.for_report
+        .combine(soft_filter.out.soft_report)
+        .combine(hard_filter.out.hard_vcf_stats).view() | html_report
 
 }
 
@@ -247,12 +270,16 @@ process call_variants_individual {
     tag { "${strain}:${region}" }
 
     input:
-        tuple strain, path(bam), path(bai), val(region)
+        tuple strain, path(bam), path(bai), val(region), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
 
     output:
         tuple strain, path("${region}.g.vcf.gz")
 
     """
+    cp ${ref_file} ./ref.fa.gz
+    cp ${ref_index} ./ref.fa.gz.fai
+    cp ${ref_dict} ./ref.dict
+    cp ${ref_gzi} ./ref.fa.gz.gzi
         gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
             --emit-ref-confidence GVCF \\
             --annotation DepthPerAlleleBySample \\
@@ -271,7 +298,7 @@ process call_variants_individual {
             --annotation-group AS_StandardAnnotation \\
             --annotation-group StandardHCAnnotation \\
             --do-not-run-physical-phasing \\
-            -R ${reference} \\
+            -R ref.fa.gz \\
             -I ${bam} \\
             -L ${region} \\
             -O ${region}.g.vcf   
@@ -337,7 +364,7 @@ process genotype_cohort_gvcf_db {
     label 'xl'
 
     input:
-        tuple val(contig), file("${contig}.db")
+        tuple val(contig), file("${contig}.db"), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
 
     output:
         tuple file("${contig}_cohort_pol.vcf.gz"), file("${contig}_cohort_pol.vcf.gz.csi")
@@ -348,9 +375,14 @@ process genotype_cohort_gvcf_db {
     */
 
     """
+    cp ${ref_file} ./ref.fa.gz
+    cp ${ref_index} ./ref.fa.gz.fai
+    cp ${ref_dict} ./ref.dict
+    cp ${ref_gzi} ./ref.fa.gz.gzi
+
         gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             GenotypeGVCFs \\
-            -R ${reference} \\
+            -R ref.fa.gz \\
             -V gendb://${contig}.db \\
             -G StandardAnnotation \\
             -G AS_StandardAnnotation \\
@@ -411,16 +443,21 @@ process soft_filter {
     label 'lg'
 
     input:
-        tuple path(vcf), path(vcf_index)
+        tuple path(vcf), path(vcf_index), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
 
     output:
         tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
         path "WI.${date}.soft-filter.vcf.gz.tbi"
         path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
-        path "WI.${date}.soft-filter.filter_stats.txt"
+        tuple path("WI.${date}.soft-filter.filter_stats.txt"), path("WI.${date}.soft-filter.stats.txt"), emit: 'soft_report'
     
 
     """
+    cp ${ref_file} ./ref.fa.gz
+    cp ${ref_index} ./ref.fa.gz.fai
+    cp ${ref_dict} ./ref.dict
+    cp ${ref_gzi} ./ref.fa.gz.gzi
+
         function cleanup {
             rm out.vcf.gz
         }
@@ -428,7 +465,7 @@ process soft_filter {
 
         gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
             VariantFiltration \\
-            -R ${reference} \\
+            -R ref.fa.gz \\
             --variant ${vcf} \\
             --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "DP_min_depth" \\
             --filter-expression "QUAL < ${params.qual}"                --filter-name "QUAL_quality" \\
@@ -552,17 +589,18 @@ process html_report {
     publishDir "${params.output}", mode: 'copy'
 
     input:
-        path("*")
+        tuple path("multiqc.html"), path("soft_filter_filter"), path("soft_filter_stats"), path("hard_filter_stats")
 
     output:
         file("*.html")
 
     """
-    # echo ".libPaths(c(\\"${params.R_libpath}\\", .libPaths() ))" > .Rprofile
-
     cat "${workflow.projectDir}/bin/gatk_report.Rmd" | \\
-        sed -e 's/RELEASE_DATE/${date}/g' > gatk_report_${date}.Rmd
-    Rscript -e "rmarkdown::render('gatk_report_${date}.Rmd', knit_root_dir='${workflow.launchDir}/${params.output}')"
+        sed -e 's/RELEASE_DATE/${date}/g' |
+        sed -e 's+variation/WI.{vcf_date}.soft-filter.stats.txt+${soft_filter_stats}+g' |
+        sed -e 's+variation/WI.{vcf_date}.hard-filter.stats.txt+${hard_filter_stats}+g' |
+        sed -e 's+variation/WI.{vcf_date}.soft-filter.filter_stats.txt+${soft_filter_filter}+g' > gatk_report_${date}.Rmd
+    Rscript -e "rmarkdown::render('gatk_report_${date}.Rmd')"
         
     """
 
