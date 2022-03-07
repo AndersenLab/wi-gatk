@@ -20,7 +20,7 @@ nextflow.preview.dsl=2
 
 date = new Date().format( 'yyyyMMdd' )
 params.mito_name = "MtDNA" // Name of contig to skip het polarization
-params.R_libpath = "/projects/b1059/software/R_lib_3.6.0/"
+// params.R_libpath = "/projects/b1059/software/R_lib_3.6.0/"
 
 
 // Check that reference exists
