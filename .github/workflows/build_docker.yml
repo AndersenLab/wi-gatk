@@ -22,7 +22,7 @@ jobs:
     # Build Tools
     - uses: jiro4989/setup-nim-action@v1
       with:
-          nim-version: 1.0.6
+          nim-version: 1.6.0
 
     - name: Build Het polarization
       run: |
