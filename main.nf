@@ -213,7 +213,7 @@ workflow {
     ).collect() | multiqc_report
     multiqc_report.out.for_report
         .combine(soft_filter.out.soft_report)
-        .combine(hard_filter.out.hard_vcf_stats).view() | html_report
+        .combine(hard_filter.out.hard_vcf_stats) | html_report
 
 }
 
