@@ -213,7 +213,7 @@ workflow {
     ).collect() | multiqc_report
     multiqc_report.out.for_report
         .combine(soft_filter.out.soft_report)
-        .combine(hard_filter.out.hard_vcf_stats).view() | html_report
+        .combine(hard_filter.out.hard_vcf_stats)| html_report
 
 }
 
@@ -270,16 +270,12 @@ process call_variants_individual {
     tag { "${strain}:${region}" }
 
     input:
-        tuple strain, path(bam), path(bai), val(region), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
+        tuple strain, path(bam), path(bai), val(region), file("ref.fa.gz"), file("ref.fa.gz.fai"), file("ref.dict"), file("ref.fa.ga.gzi")
 
     output:
         tuple strain, path("${region}.g.vcf.gz")
 
     """
-    cp ${ref_file} ./ref.fa.gz
-    cp ${ref_index} ./ref.fa.gz.fai
-    cp ${ref_dict} ./ref.dict
-    cp ${ref_gzi} ./ref.fa.gz.gzi
         gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
             --emit-ref-confidence GVCF \\
             --annotation DepthPerAlleleBySample \\
