@@ -270,7 +270,7 @@ process call_variants_individual {
     tag { "${strain}:${region}" }
 
     input:
-        tuple strain, path(bam), path(bai), val(region), file("ref.fa.gz"), file("ref.fa.gz.fai"), file("ref.dict"), file("ref.fa.ga.gzi")
+        tuple strain, path(bam), path(bai), val(region), file("ref.fa.gz"), file("ref.fa.gz.fai"), file("ref.dict"), file("ref.fa.gz.gzi")
 
     output:
         tuple strain, path("${region}.g.vcf.gz")
