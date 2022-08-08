@@ -1,0 +1,115 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "$id": "https://raw.githubusercontent.com/./master/nextflow_schema.json",
+    "title": ". pipeline parameters",
+    "description": "C. elegans variant calling",
+    "type": "object",
+    "definitions": {
+        "input_output": {
+            "title": "Input/Output",
+            "type": "object",
+            "description": "",
+            "default": "",
+            "properties": {
+                "sample_sheet": {
+                    "type": "string",
+                    "default": "${workflow.projectDir}/test_data/sample_sheet.tsv"
+                },
+                "output": {
+                    "type": "string",
+                    "default": "Analysis_Results"
+                }
+            },
+            "required": [
+                "sample_sheet"
+            ],
+            "fa_icon": "fas fa-terminal"
+        },
+        "general_parameters": {
+            "title": "General Parameters",
+            "type": "object",
+            "description": "",
+            "default": "",
+            "properties": {
+                "species": {
+                    "type": "string",
+                    "default": "c_elegans",
+                    "enum": [
+                        "c_elegans",
+                        "c_briggsae",
+                        "c_tropicalis"
+                    ]
+                },
+                "project": {
+                    "type": "string",
+                    "default": "PRJNA13758",
+                    "enum": [
+                        "PRJNA13758",
+                        "QX1410_nanopore",
+                        "NIC58_nanopore"
+                    ],
+                    "description": "Options: c_elegans - PRJNA13758|c_briggsae - QX1410_nanopore|c_tropicalis - NIC58_nanopore"
+                },
+                "ws_build": {
+                    "type": "string",
+                    "default": "WS283",
+                    "description": "WS build for species"
+                }
+            },
+            "required": [
+                "species",
+                "project",
+                "ws_build"
+            ],
+            "fa_icon": "fas fa-balance-scale-left"
+        },
+        "variant_filtering": {
+            "title": "Variant Filtering",
+            "type": "object",
+            "description": "",
+            "default": "",
+            "properties": {
+                "min_depth": {
+                    "type": "number",
+                    "default": 5
+                },
+                "qual": {
+                    "type": "string",
+                    "default": "30.0"
+                },
+                "strand_odds_ratio": {
+                    "type": "string",
+                    "default": "5.0"
+                },
+                "quality_by_depth": {
+                    "type": "string",
+                    "default": "20.0"
+                },
+                "fisherstrand": {
+                    "type": "string",
+                    "default": "100.0"
+                },
+                "high_missing": {
+                    "type": "string",
+                    "default": "0.95"
+                },
+                "high_heterozygosity": {
+                    "type": "string",
+                    "default": "0.10"
+                }
+            },
+            "fa_icon": "fas fa-filter"
+        }
+    },
+    "allOf": [
+        {
+            "$ref": "#/definitions/input_output"
+        },
+        {
+            "$ref": "#/definitions/general_parameters"
+        },
+        {
+            "$ref": "#/definitions/variant_filtering"
+        }
+    ]
+}
