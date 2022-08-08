@@ -6,7 +6,7 @@
     - Daniel Cook <danielecook@gmail.com>
     - Dan Lu
 */
-nextflow.preview.dsl=2
+nextflow.enable.dsl=2
 
 // For now, this pipeline requires NXF_VER 20.01.0-rc1
 // Prefix this version when running
