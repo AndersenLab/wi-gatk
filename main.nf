@@ -248,7 +248,7 @@ process get_contigs {
     label 'sm'
 
     input:
-        tuple strain, path(bam), path(bai)
+        tuple val(strain), path(bam), path(bai)
 
     output:
         path("contigs.txt")
@@ -270,10 +270,10 @@ process call_variants_individual {
     tag { "${strain}:${region}" }
 
     input:
-        tuple strain, path(bam), path(bai), val(region), file("ref.fa.gz"), file("ref.fa.gz.fai"), file("ref.dict"), file("ref.fa.gz.gzi")
+        tuple val(strain), path(bam), path(bai), val(region), file("ref.fa.gz"), file("ref.fa.gz.fai"), file("ref.dict"), file("ref.fa.gz.gzi")
 
     output:
-        tuple strain, path("${region}.g.vcf.gz")
+        tuple val(strain), path("${region}.g.vcf.gz")
 
     """
         gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
@@ -315,7 +315,7 @@ process concat_strain_gvcfs {
     tag { "${strain}" }
 
     input:
-        tuple strain, path("*"), path(contigs)
+        tuple val(strain), path("*"), path(contigs)
 
     output:
         tuple path("${strain}.g.vcf.gz"), path("${strain}.g.vcf.gz.tbi")
