@@ -333,7 +333,7 @@ process concat_strain_gvcfs {
     label 'xl'
 
     input:
-        tuple path(vcfs), contig, path(sample_map)
+        tuple path(vcfs), val(contig), path(sample_map)
 
     output:
         tuple val(contig), file("${contig}.db")
