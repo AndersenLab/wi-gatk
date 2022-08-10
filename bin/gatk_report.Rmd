@@ -1,5 +1,6 @@
 ---
 date: "`r Sys.Date()`"
+title: "gatk_report"
 output: 
   html_document: 
     theme: yeti
