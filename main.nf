@@ -265,7 +265,7 @@ process get_contigs {
 
 process call_variants_individual {
 
-    label 'md'
+    label 'lg'
 
     tag { "${strain}:${region}" }
 
@@ -436,7 +436,7 @@ process soft_filter {
 
     publishDir "${params.output}/variation", mode: 'copy'
 
-    label 'lg'
+    label 'xl'
 
     input:
         tuple path(vcf), path(vcf_index), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")

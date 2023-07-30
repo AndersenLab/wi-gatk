@@ -15,3 +15,4 @@ bin/ad_dp*
 genomes/*
 ad_dp
 het_polarization
+post_gvcf_fix.nf
