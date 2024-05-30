@@ -34,7 +34,7 @@ if (params.debug) {
     params.output = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
     // this is stupid, I'm not sure why it isn't working
-    if(params.bam_location == " ") {
+    if(params.bam_location != "") {
         bam_folder = "${params.bam_location}"
     } else {
         bam_folder = "${workflow.projectDir}"
@@ -43,7 +43,7 @@ if (params.debug) {
     // The strain sheet that used for 'production' is located in the root of the git repo
     params.output = "WI-${date}"
     params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
-    if(params.bam_location == " ") {
+    if(params.bam_location != "") {
         bam_folder = "${params.bam_location}"
     } else {
         bam_folder = "${params.data_path}/${params.species}/WI/alignments/"
@@ -110,7 +110,7 @@ To run the pipeline:
 
 nextflow main.nf --debug
 nextflow main.nf -profile debug
-nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/projects/b1059/workflows/alignment-nf/
+nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/${params.data_path}/workflows/alignment-nf/
 
     parameters                 description                           Set/Default
     ==========                 ===========                           ========================
@@ -124,7 +124,6 @@ nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/proj
 
     Reference Genome
     --------------- 
-    --reference_base           Location of ref genomes               ${params.reference_base}
     --species/project/build    These 4 params form --reference       ${params.species} / ${params.project} / ${params.ws_build}
 
     Variant Filters         
@@ -220,6 +219,7 @@ process summary {
     // Generates a summary of the run for the release directory.
     
     executor 'local'
+    singularity.enabled = false
 
     publishDir "${params.output}", mode: 'copy'
     
