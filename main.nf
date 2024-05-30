@@ -219,7 +219,7 @@ process summary {
     // Generates a summary of the run for the release directory.
     
     executor 'local'
-    singularity.enabled = false
+    label 'containerless'
 
     publishDir "${params.output}", mode: 'copy'
     
