@@ -252,7 +252,7 @@ process get_contigs {
         path("contigs.txt")
 
     """
-        samtools id+6xstats ${bam} | cut -f 1 | grep -v '*' > contigs.txt
+        samtools idxstats ${bam} | cut -f 1 | grep -v '*' > contigs.txt
     """
 
 }
