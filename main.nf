@@ -5,14 +5,15 @@
     - Stefan Zdraljevic
     - Daniel Cook <danielecook@gmail.com>
     - Dan Lu
+    - Mike Sauria <mike.sauria@jhu.edu>
 */
-nextflow.preview.dsl=2
+nextflow.enable.dsl=2
 
 // For now, this pipeline requires NXF_VER 20.01.0-rc1
 // Prefix this version when running
 // e.g.
 // NXF_VER=20.01.0-rc1 nextflow run ...
-//assert System.getenv("NXF_VER") == "20.01.0-rc1"
+//assert System.getenv("NXF_VER") >= "23"
 
 /*
     Params
@@ -45,9 +46,9 @@ if (params.debug) {
     if(params.bam_location == " ") {
         bam_folder = "${params.bam_location}"
     } else {
-        bam_folder = "/projects/b1059/data/${params.species}/WI/alignments/"
+        bam_folder = "${params.data_path}/${params.species}/WI/alignments/"
     }
-    params.bam_location = "/projects/b1059/data/${params.species}/WI/alignments/" // Use this to specify the directory for bams
+    params.bam_location = "${params.data_path}/${params.species}/WI/alignments/" // Use this to specify the directory for bams
 }
 
 // set default project and ws build for species
@@ -64,8 +65,8 @@ if(params.species == "c_elegans") {
 
 
 // check reference
-if(params.species == "c_elegans" | params.species == "c_briggsae" | params.species == "c_tropicalis") {
-    params.reference = "/projects/b1059/data/${params.species}/genomes/${params.project}/${params.ws_build}/${params.species}.${params.project}.${params.ws_build}.genome.fa.gz"
+if(params.data_path && (params.species == "c_elegans" | params.species == "c_briggsae" | params.species == "c_tropicalis")) {
+    params.reference = "${data_path}/${params.species}/genomes/${params.project}/${params.ws_build}/${params.species}.${params.project}.${params.ws_build}.genome.fa.gz"
 } else if (params.species == null) {
     if (params.reference == null) {
         if (params.help) {
@@ -143,27 +144,24 @@ out
 
 log.info(log_summary())
 
-if (params.help) {
+if (params.help == true) {
     exit 1
 }
 
-
-
-// Read sample sheet
-sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-                       .ifEmpty { exit 1, "sample sheet not found" }
-                       .splitCsv(header:true, sep: "\t")
-                       .map { row -> 
-                                    // Optionally allow user to specify a bam location
-                                    // if (bam_folder != "") {
-                                    row.bam = "${bam_folder}/${row.bam}"
-                                    // }           
-                                    [row.strain,
-                                     file("${row.bam}", checkIfExists: true),
-                                     file("${row.bam}.bai", checkIfExists: true)] }
-
-
 workflow {
+
+    // Read sample sheet
+    sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+                        .ifEmpty { exit 1, "sample sheet not found" }
+                        .splitCsv(header:true, sep: "\t")
+                        .map { row -> 
+                                        // Optionally allow user to specify a bam location
+                                        // if (bam_folder != "") {
+                                        row.bam = "${bam_folder}/${row.bam}"
+                                        // }           
+                                        [row.strain,
+                                        file("${row.bam}", checkIfExists: true),
+                                        file("${row.bam}.bai", checkIfExists: true)] }
 
     // Generate a summary of the current run
     summary(Channel.from("run").combine(Channel.from("${params.sample_sheet}")))
@@ -248,7 +246,7 @@ process get_contigs {
     label 'sm'
 
     input:
-        tuple strain, path(bam), path(bai)
+        tuple val(strain), path(bam), path(bai)
 
     output:
         path("contigs.txt")
@@ -270,10 +268,10 @@ process call_variants_individual {
     tag { "${strain}:${region}" }
 
     input:
-        tuple strain, path(bam), path(bai), val(region), file("ref.fa.gz"), file("ref.fa.gz.fai"), file("ref.dict"), file("ref.fa.gz.gzi")
+        tuple val(strain), path(bam), path(bai), val(region), file("ref.fa.gz"), file("ref.fa.gz.fai"), file("ref.dict"), file("ref.fa.gz.gzi")
 
     output:
-        tuple strain, path("${region}.g.vcf.gz")
+        tuple val(strain), path("${region}.g.vcf.gz")
 
     """
         gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
@@ -315,7 +313,7 @@ process concat_strain_gvcfs {
     tag { "${strain}" }
 
     input:
-        tuple strain, path("*"), path(contigs)
+        tuple val(strain), path("*"), path(contigs)
 
     output:
         tuple path("${strain}.g.vcf.gz"), path("${strain}.g.vcf.gz.tbi")
@@ -333,12 +331,15 @@ process concat_strain_gvcfs {
     label 'xl'
 
     input:
-        tuple path(vcfs), contig, path(sample_map)
+        tuple val(vcfs), val(contig), path(sample_map)
 
     output:
         tuple val(contig), file("${contig}.db")
 
     """
+        VCFS=(\$(echo ${vcfs} | sed 's/\\[//g' | sed 's/\\]//g' | sed 's/,/ /g'))
+        for I in \${VCFS[*]}; do ln -s \${I} ./; done
+
         gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus}" \\
             GenomicsDBImport \\
             --genomicsdb-workspace-path ${contig}.db \\
@@ -520,26 +521,22 @@ process hard_filter {
 
         # Generate hard-filtered VCF
         function generate_hard_filter {
-
-        if [ \${1} == "${params.mito_name}" ]
-
-        then
-            bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
-            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth"' |\\
-            bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
-            bcftools view -O v --min-af 0.000001 --max-af 0.999999 |\\
-            vcffixup - | \\
-            bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
-
-        else
-            bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} |\\
-            bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' |\\
-            bcftools filter -O u --exclude 'FILTER != "PASS"' |\\
-            bcftools view -O v --min-af 0.000001 --max-af 0.999999 |\\
-            vcffixup - | \\
-            bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
-        fi
-
+            if [ \${1} == "${params.mito_name}" ]
+            then
+                bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} | \\
+                bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth"' | \\
+                bcftools filter -O u --exclude 'FILTER != "PASS"' | \\
+                bcftools view -O v --min-af 0.000001 --max-af 0.999999 | \\
+                vcffixup - | \\
+                bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
+            else
+                bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} | \\
+                bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' | \\
+                bcftools filter -O u --exclude 'FILTER != "PASS"' | \\
+                bcftools view -O v --min-af 0.000001 --max-af 0.999999 | \\
+                vcffixup - | \\
+                bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
+            fi
         }
 
         export -f generate_hard_filter
@@ -561,6 +558,7 @@ process hard_filter {
 
 process multiqc_report {
 
+    container 'andersenlab/multiqc:2022030115492310c8da'
     publishDir "${params.output}/report", mode: 'copy'
 
     input:
