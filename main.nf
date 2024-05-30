@@ -166,51 +166,51 @@ workflow {
     summary(Channel.from("run").combine(Channel.from("${params.sample_sheet}")))
 
     // Get contigs from first bam
-    sample_sheet.first() | get_contigs
-    contigs = get_contigs.out.splitText { it.strip() }
+    // sample_sheet.first() | get_contigs
+    // contigs = get_contigs.out.splitText { it.strip() }
 
-    // create reference channel
-    refs = Channel.fromPath("${params.reference}")
-        .combine(Channel.fromPath("${params.reference}.fai"))
-        .combine(Channel.fromPath("${params.reference.replaceFirst(/.fa.gz/, ".dict")}"))
-        .combine(Channel.fromPath("${params.reference}.gzi"))
+    // // create reference channel
+    // refs = Channel.fromPath("${params.reference}")
+    //     .combine(Channel.fromPath("${params.reference}.fai"))
+    //     .combine(Channel.fromPath("${params.reference.replaceFirst(/.fa.gz/, ".dict")}"))
+    //     .combine(Channel.fromPath("${params.reference}.gzi"))
 
-    // Call individual variants
-    sample_sheet.combine(contigs)
-        .combine(refs)| call_variants_individual
+    // // Call individual variants
+    // sample_sheet.combine(contigs)
+    //     .combine(refs)| call_variants_individual
 
-    call_variants_individual.out.groupTuple()
-                                .map { strain, vcf -> [strain, vcf]}
-                                .combine(get_contigs.out) | \
-                                concat_strain_gvcfs
+    // call_variants_individual.out.groupTuple()
+    //                             .map { strain, vcf -> [strain, vcf]}
+    //                             .combine(get_contigs.out) | \
+    //                             concat_strain_gvcfs
     
-    // gatk genomics db
-    sample_map = sample_sheet.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
-    concat_strain_gvcfs.out.flatten()
-                           .collect() // .toList() might be causing this process to always repeat, try switching to collect (https://gitter.im/nextflow-io/nextflow/archives/2018/10/08)
-                           .map { [it] }
-                           .combine(contigs)
-                           .combine(sample_map) | \
-                        import_genomics_db
-    import_genomics_db.out
-        .combine(refs) | \
-        genotype_cohort_gvcf_db
+    // // gatk genomics db
+    // sample_map = sample_sheet.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
+    // concat_strain_gvcfs.out.flatten()
+    //                        .collect() // .toList() might be causing this process to always repeat, try switching to collect (https://gitter.im/nextflow-io/nextflow/archives/2018/10/08)
+    //                        .map { [it] }
+    //                        .combine(contigs)
+    //                        .combine(sample_map) | \
+    //                     import_genomics_db
+    // import_genomics_db.out
+    //     .combine(refs) | \
+    //     genotype_cohort_gvcf_db
 
 
-    // Combine VCF and filter
-    genotype_cohort_gvcf_db.out.collect() | concatenate_vcf
-    concatenate_vcf.out.vcf
-        .combine(refs) | soft_filter
-    soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
+    // // Combine VCF and filter
+    // genotype_cohort_gvcf_db.out.collect() | concatenate_vcf
+    // concatenate_vcf.out.vcf
+    //     .combine(refs) | soft_filter
+    // soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
 
 
-    // MultiQC Report
-    soft_filter.out.soft_vcf_stats.concat(
-        hard_filter.out.hard_vcf_stats
-    ).collect() | multiqc_report
-    multiqc_report.out.for_report
-        .combine(soft_filter.out.soft_report)
-        .combine(hard_filter.out.hard_vcf_stats)| html_report
+    // // MultiQC Report
+    // soft_filter.out.soft_vcf_stats.concat(
+    //     hard_filter.out.hard_vcf_stats
+    // ).collect() | multiqc_report
+    // multiqc_report.out.for_report
+    //     .combine(soft_filter.out.soft_report)
+    //     .combine(hard_filter.out.hard_vcf_stats)| html_report
 
 }
 
