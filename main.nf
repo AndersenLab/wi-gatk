@@ -163,7 +163,7 @@ workflow {
                                         file("${row.bam}.bai", checkIfExists: true)] }
 
     // Generate a summary of the current run
-    summary(Channel.from("run").combine(Channel.from("${params.sample_sheet}")))
+    // summary(Channel.from("run").combine(Channel.from("${params.sample_sheet}")))
 
     // Get contigs from first bam
     sample_sheet.first() | get_contigs
