@@ -166,8 +166,8 @@ workflow {
     summary(Channel.from("run").combine(Channel.from("${params.sample_sheet}")))
 
     // Get contigs from first bam
-    // sample_sheet.first() | get_contigs
-    // contigs = get_contigs.out.splitText { it.strip() }
+    sample_sheet.first() | get_contigs
+    contigs = get_contigs.out.splitText { it.strip() }
 
     // // create reference channel
     // refs = Channel.fromPath("${params.reference}")
