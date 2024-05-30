@@ -66,7 +66,7 @@ if(params.species == "c_elegans") {
 
 // check reference
 if(params.data_path && (params.species == "c_elegans" | params.species == "c_briggsae" | params.species == "c_tropicalis")) {
-    params.reference = "${data_path}/${params.species}/genomes/${params.project}/${params.ws_build}/${params.species}.${params.project}.${params.ws_build}.genome.fa.gz"
+    params.reference = "${params.data_path}/${params.species}/genomes/${params.project}/${params.ws_build}/${params.species}.${params.project}.${params.ws_build}.genome.fa.gz"
 } else if (params.species == null) {
     if (params.reference == null) {
         if (params.help) {
