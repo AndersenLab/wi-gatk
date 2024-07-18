@@ -4,50 +4,165 @@
 
 The new GATK-based pipeline for wild isolate C. elegans strains
 
+# Pipeline Overview
 
-### Typical use for debugging:
-```
-nextflow main.nf -profile debug   # this will request less resources and queue less
 ```
 
-### Typical use for new bam files:
+	_______ _______ _______ __  __      _______ _______ 
+	|     __|   _   |_     _|  |/  |    |    |  |    ___|
+	|    |  |       | |   | |     <     |       |    ___|
+	|_______|___|___| |___| |__|\__|    |__|____|___|    
+											  
+
+	parameters                 description                           Set/Default
+	==========                 ===========                           ========================
+	--debug                    Use --debug to indicate debug mode    null
+	--output                   Release Directory                     WI-{date}
+	--sample_sheet             Sample sheet                          null
+	--bam_location             Directory of bam files                /projects/b1059/data/{species}/WI/alignments/
+	--mito_name                Contig not to polarize hetero sites   MtDNA
+
+	Reference Genome
+	--------------- 
+	--reference_base           Location of ref genomes               /projects/b1059/data/{species}/genomes/
+	--species/project/build    These 4 params form --reference       {species} / {project} / {ws_build}
+
+	Variant Filters         
+	---------------           
+	--min_depth                Minimum variant depth                 5
+	--qual                     Variant QUAL score                    30
+	--strand_odds_ratio        SOR_strand_odds_ratio                 5
+	--quality_by_depth         QD_quality_by_depth                   20
+	--fisherstrand             FS_fisher_strand                      100
+	--high_missing             Max % missing genotypes               0.95
+	--high_heterozygosity      Max % max heterozygosity              0.10
+
+
 ```
-nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/projects/b1059/workflows/alignment-nf/
+
+## Software Requirements
+
+* The latest update requires Nextflow version 23+. On Rockfish, you can access this version by loading the `nf23_env` conda environment prior to running the pipeline command:
+
+```
+module load python/anaconda
+source activate /data/eande106/software/conda_envs/nf23_env
 ```
 
-### Parameters
-    parameters                 description                           Set/Default
-    ==========                 ===========                           ========================
-    --debug                    Use --debug to indicate debug mode    (Optional)
-    --output                   Release Directory                     alignment-YYYYMMDD
-    --sample_sheet             Sample sheet                          (Required)
-    --bam_location             Directory of bam files                (Optional but a full path will help Nextflow find files inside of Docker container)
-    --reference                Reference Genome                      (Rquired. Default is in quest.config)
-    --mito_name                Contig not to polarize hetero sites   MtDNA                                                     
-    Reference Genome (these 4 parameters are building parts of params.reference)
-    --------------- 
-    --reference_base           Location of ref genomes               (Optional. Default is in quest.config)
-    --species/project/build    These 4 params form --reference       (Optional. Default is in quest.config)
+## Typical use for debugging:
+```
+nextflow run -latest andersenlab/wi-gatk --debug
+```
 
-    Variant Filters         
-    ---------------           
-    --min_depth                Minimum variant depth                 5
-    --qual                     Variant QUAL score                    30.0
-    --strand_odds_ratio        SOR_strand_odds_ratio                 5.0 
-    --quality_by_depth         QD_quality_by_depth                   20.0 
-    --fisherstrand             FS_fisher_strand                      100.0
-    --high_missing             Max % missing genotypes               0.95
-    --high_heterozygosity      Max % max heterozygosity              0.10
+## Typical use for new bam files:
+```
+nextflow run -latest andersenlab/wi-gatk --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/vast/eande106/workflows/alignment-nf/
+```
+
+# Parameters
+
+## -profile
+
+There are three configuration profiles for this pipeline.
+
+* `rockfish` - Used for running on Rockfish (default).
+* `quest`    - Used for running on Quest.
+* `local`    - Used for local development.
+
+!!! Note
+	If you forget to add a `-profile`, the `rockfish` profile will be chosen as default
+
+## --sample_sheet
+
+The sample sheet is automatically generated from `alignment-nf`. The sample sheet contains 5 columns as detailed below:
+
+| strain   | bam   | bai   | coverage  | percent_mapped   | 
+|:----|:-------|:------|:-----------|:-------------|
+| AB1 | AB1.bam  | AB1.bam.bai  | 64  | 99.4 | 
+| AB4 | AB4.bam  | AB4.bam.bai  | 52  | 99.2 | 
+| BRC20067 | BRC20067.bam  | BRC20067.bam.bai  | 30  | 92.5 | 
+
+>[!Important]
+>It is essential that you always use the pipelines and scripts to generate this sample sheet and **NEVER** manually. There are lots of strains and we want to make sure the entire process can be reproduced.
+
+>[!Note]
+>The sample sheet produced from `alignment-nf` is only for strains that you ran in the alignment pipeline most recently. If you want to combine old strains with new strains, you will have to combine two or more sample sheets. **If you are running a species-wide analysis for CaeNDR, please follow the notes in the full WI protocol [here](https://katiesevans9.notion.site/Wild-isolate-sequence-analysis-protocol-00e76cc7f55f4bf6ab644dd99c883727)**
+
+## --bam_location (optional)
+
+Path to directory holding all the alignment files for strains in the analysis. Defaults to `/vast/eande106/data/{species}/WI/alignments/`
+
+>[!Important]
+>Remember to move your bam files output from [alignment-nf](https://github.com/andersenlab/alignment-nf) to this location prior to running `wi-gatk`. In **most** cases, you will want to run `wi-gatk` on all samples, new and old combined.
+
+## --species (optional)
+
+__default__ = c_elegans
+
+Options: c_elegans, c_briggsae, or c_tropicalis
+
+## --project (optional)
+
+__default__ = PRJNA13758
+
+WormBase project ID for selected species. Choose from some examples [here](https://github.com/AndersenLab/genomes-nf/blob/master/bin/project_species.tsv)
+
+## --ws_build (optional)
+
+__default__ = WS283
+
+WormBase version to use for reference genome.
+
+## --reference (optional)
+
+A fasta reference indexed with BWA. On Rockfish, the reference is available here:
+
+```
+/vast/eande106/data/c_elegans/genomes/PRJNA13758/WS283/c_elegans.PRJNA13758.WS283.genome.fa.gz
+```
+
+>[!Note]
+>If running on Rockfish, instead of changing the `reference` parameter, opt to change the `species`, `project`, and `ws_build` for other species like c_briggsae (and then the reference will change automatically) 
+
+## --mito_name (optional)
+
+Name of contig to skip het polarization. Might need to change for other species besides c_elegans if the mitochondria contig is named differently. Defaults to `MtDNA`.
+
+## --output (optional)
+
+A directory in which to output results. By default it will be `WI-YYYYMMDD` where YYYYMMDD is todays date.
 
 
+# Output
 
-### Notes
+The final output directory looks like this:
 
-1. This pipeline uses a Docker container ([`andersenlab/gatk4`](https://www.dockerhub.com/andersenlab/gatk4)). So on Quest need to do `module add singularity` before running. 
+```
 
-2. The dockerfile can be found at `wi-gatk/env/gatk4.Dockerfile` in this repo. An automatic Gtihub action is set up so that the Docker image gets re-built with each push to Github. In other words, editing the dockerfile and push the change will automatically update the container. 
+├── variation
+│   ├── *.hard-filter.vcf.gz
+│   ├── *.hard-filter.vcf.tbi
+│   ├── *.hard-filter.stats.txt
+│   ├── *.hard-filter.filter_stats.txt
+│   ├── *.soft-filter.vcf.gz
+│   ├── *.soft-filter.vcf.tbi
+│   ├── *.soft-filter.stats.txt
+│   └── *.soft-filter.filter_stats.txt
+└── report
+    ├── multiqc.html
+	└── multiqc_data
+        └── multiqc_*.json
+   
+```
 
-3. The docker image is usually stored in a Nextflow cache folder (typically specified in config). Each time the Docker image is updated, the existing image in the cache folder needs to be manually deleted, otherwise Nextflow will NOT automatically pull the latest Docker image. Pulling Docker images is best run on Quest login node.
+# Relevant Docker Images
 
-4. GATK requires the genome fasta to be bgzip-ped. It's taken care of in genomes-nf
+* `andersenlab/gatk4` ([link](https://hub.docker.com/r/andersenlab/gatk4)): Docker image is created within this pipeline using GitHub actions. Whenever a change is made to `env/gatk4.Dockerfile` or `.github/workflows/build_docker.yml` GitHub actions will create a new docker image and push if successful
+* `andersenlab/r_packages` ([link](https://hub.docker.com/r/andersenlab/r_packages)): Docker image is created manually, code can be found in the [dockerfile](https://github.com/AndersenLab/dockerfile/tree/master/r_packages) repo.
 
+Make sure that you add the following code to your `~/.bash_profile`. This line makes sure that any singularity images you download will go to a shared location on `/vast/eande106` for other users to take advantage of (without them also having to download the same image).
+
+```
+# add singularity cache
+export SINGULARITY_CACHEDIR='/vast/eande106/singularity/'
+```
