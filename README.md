@@ -69,8 +69,8 @@ There are three configuration profiles for this pipeline.
 * `quest`    - Used for running on Quest.
 * `local`    - Used for local development.
 
-!!! Note
-	If you forget to add a `-profile`, the `rockfish` profile will be chosen as default
+>[!Note]
+>If you forget to add a `-profile`, the `rockfish` profile will be chosen as default
 
 ## --sample_sheet
 
