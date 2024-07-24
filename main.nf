@@ -187,7 +187,7 @@ workflow {
     // gatk genomics db
     sample_map = sample_sheet.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
     concat_strain_gvcfs.out.flatten()
-                           .collect(sort=true) // .toList() might be causing this process to always repeat, try switching to collect (https://gitter.im/nextflow-io/nextflow/archives/2018/10/08)
+                           .collect(sort: true) // .toList() might be causing this process to always repeat, try switching to collect (https://gitter.im/nextflow-io/nextflow/archives/2018/10/08)
                            .map { [it] }
                            .combine(contigs)
                            .combine(sample_map) | \
