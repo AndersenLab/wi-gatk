@@ -48,7 +48,6 @@ if (params.debug) {
     } else {
         bam_folder = "${params.data_path}/${params.species}/WI/alignments/"
     }
-    params.bam_location = "${params.data_path}/${params.species}/WI/alignments/" // Use this to specify the directory for bams
 }
 
 // set default project and ws build for species
