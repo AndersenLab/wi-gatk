@@ -339,7 +339,7 @@ process concat_strain_gvcfs {
         VCFS=(\$(echo ${vcfs} | sed 's/\\[//g' | sed 's/\\]//g' | sed 's/,/ /g'))
         for I in \${VCFS[*]}; do ln -s \${I} ./; done
 
-        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus}" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus} -XX:+UseSerialGC" \\
             GenomicsDBImport \\
             --genomicsdb-workspace-path ${contig}.db \\
             --batch-size 16 \\
@@ -376,7 +376,7 @@ process genotype_cohort_gvcf_db {
     cp ${ref_dict} ./ref.dict
     cp ${ref_gzi} ./ref.fa.gz.gzi
 
-        gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
+        gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:+UseSerialGC" \\
             GenotypeGVCFs \\
             -R ref.fa.gz \\
             -V gendb://${contig}.db \\
@@ -459,7 +459,7 @@ process soft_filter {
         }
         trap cleanup EXIT
 
-        gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g" \\
+        gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:+UseSerialGC" \\
             VariantFiltration \\
             -R ref.fa.gz \\
             --variant ${vcf} \\
