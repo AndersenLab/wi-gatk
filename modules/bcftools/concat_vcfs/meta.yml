@@ -1,0 +1,45 @@
+name: bcftools_concat_vcfs
+description: Combine variant calls from different contigs
+keywords:
+  - bcftools
+tools:
+  - bcftools:
+      description: Manipulate binary VCF files
+      homepage: http://samtools.github.io/bcftools/bcftools.html
+      documentation: https://samtools.github.io/bcftools/bcftools.html#annotate
+      doi: 10.1093/bioinformatics/btp352
+      licence: ["MIT"]
+input:
+  - meta:
+      type: map
+      description: |
+        Groovy Map containing sample information
+        e.g. [ id:'test']
+  - vcfs:
+      type: path
+      description: File paths to sample contig variant calls
+      pattern: "*vcf*"
+  - contigs:
+      type: path
+      description: Text file with list of contigs, one per line
+      pattern: "*"
+  output:
+  - meta:
+      type: map
+      description: |
+        Groovy Map containing sample information
+        e.g. [ id:'test']
+  - vcf:
+      type: path
+      description: (g)VCF file
+      pattern: "*.vcf.gz"
+  - vcf_index:
+      type: path
+      description: (g)VCF index file
+      pattern: "*.vcf.gz.tbi"
+  - versions:
+      type: path
+      description: File containing software versions
+      pattern: "versions.yml"
+authors:
+  - "@mikesauria"

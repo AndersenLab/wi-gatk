@@ -7,13 +7,27 @@
     - Dan Lu
     - Mike Sauria <mike.sauria@jhu.edu>
 */
-nextflow.enable.dsl=2
 
-// For now, this pipeline requires NXF_VER 20.01.0-rc1
-// Prefix this version when running
-// e.g.
-// NXF_VER=20.01.0-rc1 nextflow run ...
-//assert System.getenv("NXF_VER") >= "23"
+include { CREATE_BAM_SAMPLE_SHEET                           } from "./modules/sample_sheet/create_bam_sample_sheet/main"
+include { SAMTOOLS_GET_CONTIGS                              } from "./modules/samtools/get_contigs/main"
+include { GATK_HAPLOTYPECALLER                              } from "./modules/gatk/haplotypecaller/main"
+include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_GVCFS     } from "./modules/bcftools/concat_vcfs/main"
+include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_SOFT_VCFS } from "./modules/bcftools/concat_vcfs/main"
+include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_HARD_VCFS } from "./modules/bcftools/concat_vcfs/main"
+include { GATK_GENOMICSDBIMPORT                             } from "./modules/gatk/genomicsdbimport/main"
+include { GATK_GENOTYPEGVCFS                                } from "./modules/gatk/genotypegvcfs/main"
+include { LOCAL_HETPOLARIZATION                             } from "./modules/local/hetpolarization/main"
+include { BCFTOOLS_COMPRESS                                 } from "./modules/bcftools/compress/main"
+include { GATK_SOFT_FILTER                                  } from "./modules/gatk/soft_filter/main"
+include { LOCAL_FILTER                                      } from "./modules/local/filter/main"
+include { LOCAL_VCF_STATS                                   } from "./modules/local/vcf_stats/main"
+include { MULTIQC_REPORT                                    } from "./modules/multiqc/report/main"
+include { LOCAL_REPORT                                      } from "./modules/local/report/main"
+
+// Needed to publish results
+nextflow.preview.output = true
+
+// assert System.getenv("NXF_VER") >= "24"
 
 /*
     Params
@@ -31,7 +45,7 @@ params.mito_name = "MtDNA" // Name of contig to skip het polarization
 // Debug
 if (params.debug) {
     params.species = "c_elegans"
-    params.output = "release-debug"
+    output_dir = "release-debug"
     params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
     // this is stupid, I'm not sure why it isn't working
     if(params.bam_location != "") {
@@ -41,12 +55,21 @@ if (params.debug) {
     }
 } else {
     // The strain sheet that used for 'production' is located in the root of the git repo
-    params.output = "WI-${date}"
+    if (params.output == null){
+        output_dir = "WI-${date}"
+    } else {
+        output_dir = params.output
+    }
     params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
-    if(params.bam_location != "") {
+    if(params.bam_location != null) {
         bam_folder = "${params.bam_location}"
     } else {
         bam_folder = "${params.data_path}/${params.species}/WI/alignments/"
+    }
+    if(params.gvcf_location != null) {
+        gvcf_folder = "${params.gvcf_location}"
+    } else {
+        gvcf_folder = "${params.data_path}/${params.species}/WI/gVCFs/"
     }
 }
 
@@ -64,23 +87,26 @@ if(params.species == "c_elegans") {
 
 
 // check reference
-if(params.data_path && (params.species == "c_elegans" | params.species == "c_briggsae" | params.species == "c_tropicalis")) {
-    params.reference = "${params.data_path}/${params.species}/genomes/${params.project}/${params.ws_build}/${params.species}.${params.project}.${params.ws_build}.genome.fa.gz"
-} else if (params.species == null) {
-    if (params.reference == null) {
-        if (params.help) {
-        } else { 
+if (params.reference == null){
+    if(params.data_path != null && (params.species == "c_elegans" | params.species == "c_briggsae" | params.species == "c_tropicalis")) {
+        reference = "${params.data_path}/${params.species}/genomes/${params.project}/${params.ws_build}/${params.species}.${params.project}.${params.ws_build}.genome.fa.gz"
+    } else if (params.help) {
+    } else { 
         println """
 
         Please specify a species: c_elegans c_brigssae c_tropicalis with option --species, or a ref genome with --reference"
 
         """
         exit 1
-        }
     }
+} else {
+    reference = params.reference
 }
-
-reference = file(params.reference, checkIfExists: true)
+ref_base = reference.take(reference.take(reference.lastIndexOf('.') - 1).lastIndexOf("."))
+reference_fa = "${reference}"
+reference_index = "${reference}.fai"
+reference_dict = "${ref_base}.dict"
+reference_gzi = "${reference}.gzi"
 
 
 // Variant Filtering
@@ -103,40 +129,40 @@ def log_summary() {
                                               
 '''
 
-out += """
+// out += """
 
-To run the pipeline:
+// To run the pipeline:
 
-nextflow main.nf --debug
-nextflow main.nf -profile debug
-nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/${params.data_path}/workflows/alignment-nf/
+// nextflow main.nf --debug
+// nextflow main.nf -profile debug
+// nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/${params.data_path}/workflows/alignment-nf/
 
-    parameters                 description                           Set/Default
-    ==========                 ===========                           ========================
-    --debug                    Use --debug to indicate debug mode    ${params.debug}
-    --output                   Release Directory                     ${params.output}
-    --sample_sheet             Sample sheet                          ${params.sample_sheet}
-    --bam_location             Directory of bam files                ${bam_folder}
-    --reference                Reference Genome                      ${params.reference}
-    --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
-    --username                                                       ${"whoami".execute().in.text}
+//     parameters                 description                           Set/Default
+//     ==========                 ===========                           ========================
+//     --debug                    Use --debug to indicate debug mode    ${params.debug}
+//     --output                   Release Directory                     ${params.output}
+//     --sample_sheet             Sample sheet                          ${params.sample_sheet}
+//     --bam_location             Directory of bam files                ${bam_folder}
+//     --reference                Reference Genome                      ${params.reference}
+//     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
+//     --username                                                       ${"whoami".execute().in.text}
 
-    Reference Genome
-    --------------- 
-    --species/project/build    These 4 params form --reference       ${params.species} / ${params.project} / ${params.ws_build}
+//     Reference Genome
+//     --------------- 
+//     --species/project/build    These 4 params form --reference       ${params.species} / ${params.project} / ${params.ws_build}
 
-    Variant Filters         
-    ---------------           
-    --min_depth                Minimum variant depth                 ${params.min_depth}
-    --qual                     Variant QUAL score                    ${params.qual}
-    --strand_odds_ratio        SOR_strand_odds_ratio                 ${params.strand_odds_ratio} 
-    --quality_by_depth         QD_quality_by_depth                   ${params.quality_by_depth} 
-    --fisherstrand             FS_fisher_strand                      ${params.fisherstrand}
-    --high_missing             Max % missing genotypes               ${params.high_missing}
-    --high_heterozygosity      Max % max heterozygosity              ${params.high_heterozygosity}
+//     Variant Filters         
+//     ---------------           
+//     --min_depth                Minimum variant depth                 ${params.min_depth}
+//     --qual                     Variant QUAL score                    ${params.qual}
+//     --strand_odds_ratio        SOR_strand_odds_ratio                 ${params.strand_odds_ratio} 
+//     --quality_by_depth         QD_quality_by_depth                   ${params.quality_by_depth} 
+//     --fisherstrand             FS_fisher_strand                      ${params.fisherstrand}
+//     --high_missing             Max % missing genotypes               ${params.high_missing}
+//     --high_heterozygosity      Max % max heterozygosity              ${params.high_heterozygosity}
 
----
-"""
+// ---
+// """
 out
 }
 
@@ -146,457 +172,201 @@ if (params.help == true) {
     exit 1
 }
 
+
 workflow {
+    main:
+    ch_versions = Channel.empty()
 
     // Read sample sheet
-    sample_sheet = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-                        .ifEmpty { exit 1, "sample sheet not found" }
-                        .splitCsv(header:true, sep: "\t")
-                        .map { row -> 
-                                        // Optionally allow user to specify a bam location
-                                        // if (bam_folder != "") {
-                                        row.bam = "${bam_folder}/${row.bam}"
-                                        // }           
-                                        [row.strain,
-                                        file("${row.bam}", checkIfExists: true),
-                                        file("${row.bam}.bai", checkIfExists: true)] }
+    sample_sheet_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+        .ifEmpty { exit 1, "sample sheet not found" }
 
-    // Generate a summary of the current run
-    summary(Channel.from("run").combine(Channel.from("${params.sample_sheet}")))
+    // Make channel for reference
+    reference_ch = Channel.of( ["id": params.species] )
+        .combine(Channel.fromPath(reference_fa, checkIfExists: true))
+        .combine(Channel.fromPath(reference_index, checkIfExists: true))
+        .combine(Channel.fromPath(reference_dict, checkIfExists: true))
+        .combine(Channel.fromPath(reference_gzi, checkIfExists: true))
+        .first()
 
-    // Get contigs from first bam
-    sample_sheet.first() | get_contigs
-    contigs = get_contigs.out.splitText { it.strip() }
+    // Make channel of filter parameters
+    filter_ch = Channel.of( [min_depth: params.min_depth, qual: params.qual, fisherstrand: params.fisherstrand,
+                             quality_by_depth: params.quality_by_depth, strand_odds_ratio: params.strand_odds_ratio,
+                             high_missing: params.high_missing, high_heterozygosity: params.high_heterozygosity] )
+        .first()
 
-    // create reference channel
-    refs = Channel.fromPath("${params.reference}")
-        .combine(Channel.fromPath("${params.reference}.fai"))
-        .combine(Channel.fromPath("${params.reference.replaceFirst(/.fa.gz/, ".dict")}"))
-        .combine(Channel.fromPath("${params.reference}.gzi"))
+    // Determine which samples are missing gVCF files and create them
+    CREATE_BAM_SAMPLE_SHEET( sample_sheet_ch,
+                             Channel.fromPath(bam_folder, checkIfExists: true),
+                             Channel.fromPath(gvcf_folder, checkIfExists: true) )
 
-    // Call individual variants
-    sample_sheet.combine(contigs)
-        .combine(refs)| call_variants_individual
+    // Create channel of bams and indices
+    bam_ch = CREATE_BAM_SAMPLE_SHEET.out.bam
+        .splitCsv( strip: true )
+        .map{ it: [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] }
 
-    call_variants_individual.out.groupTuple()
-                                .map { strain, vcf -> [strain, vcf]}
-                                .combine(get_contigs.out) | \
-                                concat_strain_gvcfs
-    
-    // gatk genomics db
-    sample_map = sample_sheet.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
-    concat_strain_gvcfs.out.flatten()
-                           .collect(sort: true) // .toList() might be causing this process to always repeat, try switching to collect (https://gitter.im/nextflow-io/nextflow/archives/2018/10/08)
-                           .map { [it] }
-                           .combine(contigs)
-                           .combine(sample_map) | \
-                        import_genomics_db
-    import_genomics_db.out
-        .combine(refs) | \
-        genotype_cohort_gvcf_db
+    premade_gvcf_ch = CREATE_BAM_SAMPLE_SHEET.out.gvcf
+        .splitCsv( strip: true )
+        .map{ it: [ [id: it[0]], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
 
+    // Get contigs from bam file
+    SAMTOOLS_GET_CONTIGS( sample_sheet_ch.splitCsv( strip: true )
+        .first()
+        .map{ it: [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] } )
+    ch_versions = ch_versions.mix(SAMTOOLS_GET_CONTIGS.out.versions)
 
-    // Combine VCF and filter
-    genotype_cohort_gvcf_db.out.collect() | concatenate_vcf
-    concatenate_vcf.out.vcf
-        .combine(refs) | soft_filter
-    soft_filter.out.soft_filter_vcf.combine(get_contigs.out) | hard_filter
+    partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
+        .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
 
+    // Create sample by contig channel
+    bam_contig_ch = bam_ch
+        .combine(SAMTOOLS_GET_CONTIGS.out.contigs.splitCsv( strip: true ))
+        .map{ it: [[id: it[0].id, contig: it[3]], it[1], it[2]] }
 
-    // MultiQC Report
-    soft_filter.out.soft_vcf_stats.concat(
-        hard_filter.out.hard_vcf_stats
-    ).collect() | multiqc_report
-    multiqc_report.out.for_report
-        .combine(soft_filter.out.soft_report)
-        .combine(hard_filter.out.hard_vcf_stats)| html_report
+    // Call variants in each sample/contig
+    GATK_HAPLOTYPECALLER( bam_contig_ch,
+                          reference_ch )
+    ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
 
-}
+    // Group contig variant calls by sample
+    gvcf_contig_ch = GATK_HAPLOTYPECALLER.out.vcf
+        .map{ it: [ it[0].id, it[1] ] }
+        .groupTuple()
+        .map{ it: [ [id: it[0]], it[1] ] }
 
+    // Combine contigs for each sample into single gVCF samples
+    BCFTOOLS_CONCAT_GVCFS( gvcf_contig_ch,
+                           SAMTOOLS_GET_CONTIGS.out.contigs )
+    ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_GVCFS.out.versions)
 
-process summary {
-    // Generates a summary of the run for the release directory.
-    
-    executor 'local'
-    container null
+    // Collect concatenated gVCFs
+    all_gvcfs_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
+        .concat(premade_gvcf_ch)
+        .map{ it: it[1] }
+        .collect()
+        .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf
+            .concat(premade_gvcf_ch)
+            .map{ it: it[2] }
+            .collect())
+        .collect()
+        .map{ it: [it] }
 
-    publishDir "${params.output}", mode: 'copy'
-    
-    input:
-        tuple val(run), path("sample_sheet")
+    // Create gVCF sample map
+    sample_map_ch = bam_ch
+        .concat(premade_gvcf_ch)
+        .map{ it: "${it[0].id}\t${it[0].id}.g.vcf.gz" }
+        .collectFile(name: "sample_map.tsv", newLine: true)
+        .first()
 
-    output:
-        path("sample_sheet.tsv")
-        path("summary.txt")
+    // Combine allgVCFs with contigs
+    all_gvcf_contig_ch = SAMTOOLS_GET_CONTIGS.out.contigs
+        .splitCsv( strip: true )
+        .map{ it: [contig: it[0]] }
+        .combine(all_gvcfs_ch)
 
-    """
-        echo '''${log_summary()}''' > summary.txt
-        cat ${sample_sheet} > sample_sheet.tsv
-    """
+    // Create a genomics db for each contig
+    GATK_GENOMICSDBIMPORT( all_gvcf_contig_ch,
+                           sample_map_ch )
+    ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
-}
+    // Join contig intervals with proper contig DB
+    gvcfdb_interval_ch = GATK_GENOMICSDBIMPORT.out.db.map{ it: [it[0].contig, it[1]] }
+        .cross( partitions_ch.map{ it: [it.contig, it]} )
+        .map{ it: [it[1][1], it[0][1]] }
 
-/*=========================================
-~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
-=========================================*/
+    // Genotype cohort contig db
+    GATK_GENOTYPEGVCFS( gvcfdb_interval_ch,
+                        reference_ch )
+    ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
 
-process get_contigs {
+    // Compress VCFs to VCF.gz
+    BCFTOOLS_COMPRESS( GATK_GENOTYPEGVCFS.out.vcf )
+    ch_versions = ch_versions.mix(BCFTOOLS_COMPRESS.out.versions)
 
-    label 'sm'
+    // Collect cohort VCFs by contig for concatenation and het polarization
+    cohort_contig_bcf_ch = BCFTOOLS_COMPRESS.out.vcf
+        .map{ it: [it[0].contig, it[1], it[2]] } 
+        .groupTuple()
+        .map{ it: [[contig: it[0], id: params.species], it[1], it[2]] }
 
-    input:
-        tuple val(strain), path(bam), path(bai)
+    // Concatenate VCFs by contig and perform het polarization
+    LOCAL_HETPOLARIZATION( cohort_contig_bcf_ch,
+                           SAMTOOLS_GET_CONTIGS.out.partitions,
+                           params.mito_name )
+    ch_versions = ch_versions.mix(LOCAL_HETPOLARIZATION.out.versions)
 
-    output:
-        path("contigs.txt")
+    // Mark filtered genotypes/variants with GATK
+    GATK_SOFT_FILTER( filter_ch,
+                      LOCAL_HETPOLARIZATION.out.vcf,
+                      reference_ch )
+    ch_versions = ch_versions.mix(GATK_SOFT_FILTER.out.versions)
 
-    """
-        samtools idxstats ${bam} | cut -f 1 | grep -v '*' > contigs.txt
-    """
+    // Mark filtered genotypes/variants with bcftools and remove them
+    LOCAL_FILTER( filter_ch,
+                  GATK_SOFT_FILTER.out.vcf,
+                  reference_ch,
+                  params.mito_name )
+    ch_versions = ch_versions.mix(LOCAL_FILTER.out.versions)
 
-}
+    // Collect genotyped concatenated contigs together
+    soft_vcf_ch = LOCAL_FILTER.out.soft
+        .map{ it: it[1] }
+        .collect()
+        .map{ it: [[id: "soft"], it] }
 
-/*===========================================
-~ ~ ~ > * Run GATK4 HaplotypeCaller * < ~ ~ ~ 
-===========================================*/
-
-process call_variants_individual {
-
-    label 'lg'
-
-    tag { "${strain}:${region}" }
-
-    input:
-        tuple val(strain), path(bam), path(bai), val(region), file("ref.fa.gz"), file("ref.fa.gz.fai"), file("ref.dict"), file("ref.fa.gz.gzi")
-
-    output:
-        tuple val(strain), path("${region}.g.vcf.gz")
-
-    """
-        gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms10g -XX:ConcGCThreads=${task.cpus}" \\
-            --emit-ref-confidence GVCF \\
-            --annotation DepthPerAlleleBySample \\
-            --annotation Coverage \\
-            --annotation GenotypeSummaries \\
-            --annotation TandemRepeat \\
-            --annotation StrandBiasBySample \\
-            --annotation ChromosomeCounts \\
-            --annotation ReadPosRankSumTest \\
-            --annotation AS_ReadPosRankSumTest \\
-            --annotation AS_QualByDepth \\
-            --annotation AS_StrandOddsRatio \\
-            --annotation AS_MappingQualityRankSumTest \\
-            --annotation DepthPerSampleHC \\
-            --annotation-group StandardAnnotation \\
-            --annotation-group AS_StandardAnnotation \\
-            --annotation-group StandardHCAnnotation \\
-            --do-not-run-physical-phasing \\
-            -R ref.fa.gz \\
-            -I ${bam} \\
-            -L ${region} \\
-            -O ${region}.g.vcf   
-        bcftools view -O z ${region}.g.vcf > ${region}.g.vcf.gz
-        rm ${region}.g.vcf
-    """
-}
-
-/*
-=============================================
-~ ~ ~ > *  Merge Sample gVCF files  * < ~ ~ ~ 
-=============================================
-*/
-
-process concat_strain_gvcfs {
-
-    label 'sm'
-    tag { "${strain}" }
-
-    input:
-        tuple val(strain), path("*"), path(contigs)
-
-    output:
-        tuple path("${strain}.g.vcf.gz"), path("${strain}.g.vcf.gz.tbi")
-
-    """
-        awk '{ print \$0 ".g.vcf.gz" }' ${contigs} > contig_set.tsv
-        bcftools concat  -O z --file-list contig_set.tsv > ${strain}.g.vcf.gz
-        bcftools index --tbi ${strain}.g.vcf.gz
-    """
-}
-
- process import_genomics_db {
-
-    tag { "${contig}" }
-    label 'xl'
-
-    input:
-        tuple val(vcfs), val(contig), path(sample_map)
-
-    output:
-        tuple val(contig), file("${contig}.db")
-
-    """
-        VCFS=(\$(echo ${vcfs} | sed 's/\\[//g' | sed 's/\\]//g' | sed 's/,/ /g'))
-        for I in \${VCFS[*]}; do ln -s \${I} ./; done
-
-        gatk  --java-options "-Xmx${task.memory.toGiga()-3}g -Xms${task.memory.toGiga()-4}g -XX:ConcGCThreads=${task.cpus} -XX:+UseSerialGC" \\
-            GenomicsDBImport \\
-            --genomicsdb-workspace-path ${contig}.db \\
-            --batch-size 16 \\
-            -L ${contig} \\
-            --sample-name-map ${sample_map} \\
-            --reader-threads ${task.cpus}
-    """
-}
-
-/*==================================
-~ ~ ~ > *  Genotype gVCFs  * < ~ ~ ~ 
-==================================*/
-
-process genotype_cohort_gvcf_db {
-    // Heterozygous polarization is also performed here.
-
-    tag { "${contig}" }
-    label 'xl'
-
-    input:
-        tuple val(contig), file("${contig}.db"), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
-
-    output:
-        tuple file("${contig}_cohort_pol.vcf.gz"), file("${contig}_cohort_pol.vcf.gz.csi")
-
-
-    /*
-        het_polarization polarizes het-variants to REF or ALT (except for mitochondria)
-    */
-
-    """
-    cp ${ref_file} ./ref.fa.gz
-    cp ${ref_index} ./ref.fa.gz.fai
-    cp ${ref_dict} ./ref.dict
-    cp ${ref_gzi} ./ref.fa.gz.gzi
-
-        gatk  --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:+UseSerialGC" \\
-            GenotypeGVCFs \\
-            -R ref.fa.gz \\
-            -V gendb://${contig}.db \\
-            -G StandardAnnotation \\
-            -G AS_StandardAnnotation \\
-            -G StandardHCAnnotation \\
-            -L ${contig} \\
-            -O ${contig}_cohort.vcf
-
-        if [ "${contig}" == "${params.mito_name}" ]
-        then
-            bcftools view -O b ${contig}_cohort.vcf > ${contig}_cohort.bcf
-            bcftools index ${contig}_cohort.bcf
-
-        else
+    hard_vcf_ch = LOCAL_FILTER.out.hard
+        .map{ it: it[1] }
+        .collect()
+        .map{ it: [[id: "hard"], it] }
         
-            bcftools view -O z ${contig}_cohort.vcf | \\
-            het_polarization > ${contig}_cohort.bcf
-            bcftools index ${contig}_cohort.bcf
-        
-        fi
+    // Combine contigs for soft-filtered variant calls
+    BCFTOOLS_CONCAT_SOFT_VCFS( soft_vcf_ch,
+                               SAMTOOLS_GET_CONTIGS.out.contigs )
+    ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_SOFT_VCFS.out.versions)
 
-        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} ${contig}_cohort.bcf | \\
-        vcffixup - | \\
-        bcftools view -O z > ${contig}_cohort_pol.vcf.gz
-        bcftools index ${contig}_cohort_pol.vcf.gz
-    """
+    // Combine contigs for hard-filtered variant calls
+    BCFTOOLS_CONCAT_HARD_VCFS( hard_vcf_ch,
+                               SAMTOOLS_GET_CONTIGS.out.contigs )
+    ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_HARD_VCFS.out.versions)
+
+    // Get filtering stats for filtered VCFs
+    LOCAL_VCF_STATS( BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf,
+                     BCFTOOLS_CONCAT_HARD_VCFS.out.vcf )
+    ch_versions = ch_versions.mix(LOCAL_VCF_STATS.out.versions)
+
+    // Create multiqc report
+    MULTIQC_REPORT( LOCAL_VCF_STATS.out.soft_stats
+                        .concat(LOCAL_VCF_STATS.out.hard_stats)
+                        .collect() )
+    ch_versions = ch_versions.mix(MULTIQC_REPORT.out.versions)
+
+    // Create GATK report
+    LOCAL_REPORT( MULTIQC_REPORT.out.report,
+                  LOCAL_VCF_STATS.out.soft_filter_stats,
+                  LOCAL_VCF_STATS.out.soft_stats,
+                  LOCAL_VCF_STATS.out.hard_stats,
+                  "${workflow.projectDir}/bin/gatk_report.Rmd",
+                  params.timestamp )
+    ch_versions = ch_versions.mix(LOCAL_REPORT.out.versions)
+
+    publish:
+    BCFTOOLS_CONCAT_GVCFS.out.vcf     >> "gVCFs"
+    BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf >> "variants"
+    BCFTOOLS_CONCAT_HARD_VCFS.out.vcf >> "variants"
+    MULTIQC_REPORT.out.report         >> "."
+    MULTIQC_REPORT.out.json           >> "."
+    LOCAL_REPORT.out.html             >> "."
 }
 
-
-/*===============================================
-~ ~ ~ > *   Concatenate VCFs  * < ~ ~ ~
-===============================================*/
-
-process concatenate_vcf {
-
-    label 'lg'
-
-    input: 
-      path("*")
-
-    output:
-        tuple path("WI.raw.vcf.gz"), path("WI.raw.vcf.gz.tbi"), emit: 'vcf'
-
-    """
-        ls *_cohort_pol.vcf.gz > contig_set.tsv
-        bcftools concat  -O z --file-list contig_set.tsv > WI.raw.vcf.gz
-        bcftools index --tbi WI.raw.vcf.gz
-    """
+// Current bug that publish doesn't work without an output closure
+output {
+    "gVCFs" {
+        mode "copy"
+    }
+    "variants" {
+        mode "copy"
+    }
+    "." {
+        mode "copy"
+    }
 }
-
-/*===========================================
-~ ~ ~ > *   Apply SNV Soft Filters  * < ~ ~ ~
-===========================================*/
-
-process soft_filter {
-
-    publishDir "${params.output}/variation", mode: 'copy'
-
-    label 'xl'
-
-    input:
-        tuple path(vcf), path(vcf_index), file("ref_file"), file("ref_index"), file("ref_dict"), file("ref_gzi")
-
-    output:
-        tuple path("WI.${date}.soft-filter.vcf.gz"), path("WI.${date}.soft-filter.vcf.gz.csi"), emit: soft_filter_vcf
-        path "WI.${date}.soft-filter.vcf.gz.tbi"
-        path "WI.${date}.soft-filter.stats.txt", emit: 'soft_vcf_stats'
-        tuple path("WI.${date}.soft-filter.filter_stats.txt"), path("WI.${date}.soft-filter.stats.txt"), emit: 'soft_report'
-    
-
-    """
-    cp ${ref_file} ./ref.fa.gz
-    cp ${ref_index} ./ref.fa.gz.fai
-    cp ${ref_dict} ./ref.dict
-    cp ${ref_gzi} ./ref.fa.gz.gzi
-
-        function cleanup {
-            rm out.vcf.gz
-        }
-        trap cleanup EXIT
-
-        gatk --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:+UseSerialGC" \\
-            VariantFiltration \\
-            -R ref.fa.gz \\
-            --variant ${vcf} \\
-            --genotype-filter-expression "DP < ${params.min_depth}"    --genotype-filter-name "DP_min_depth" \\
-            --filter-expression "QUAL < ${params.qual}"                --filter-name "QUAL_quality" \\
-            --filter-expression "FS > ${params.fisherstrand}"          --filter-name "FS_fisherstrand" \\
-            --filter-expression "QD < ${params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
-            --filter-expression "SOR > ${params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
-            --genotype-filter-expression "isHet == 1"                  --genotype-filter-name "is_het" \\
-            -O out.vcf
-        
-        bgzip out.vcf
-        bcftools index --tbi out.vcf.gz
-        
-        # Apply high missing and high heterozygosity filters
-        bcftools filter --threads ${task.cpus} --soft-filter='high_missing' --mode + --include 'F_MISSING  <= ${params.high_missing}' out.vcf.gz |\\
-        bcftools filter --threads ${task.cpus} --soft-filter='high_heterozygosity' --mode + --include '( COUNT(GT="het") / N_SAMPLES ) <= ${params.high_heterozygosity}' -O z > WI.${date}.soft-filter.vcf.gz
-
-        bcftools index WI.${date}.soft-filter.vcf.gz
-        bcftools index --tbi WI.${date}.soft-filter.vcf.gz
-        bcftools stats --threads ${task.cpus} \\
-                       -s- --verbose WI.${date}.soft-filter.vcf.gz > WI.${date}.soft-filter.stats.txt
-
-        {
-            echo -e 'QUAL\\tQD\\tSOR\\tFS\\tFILTER';
-            bcftools query -f '%QUAL\t%INFO/QD\t%INFO/SOR\t%INFO/FS\t%FILTER\n' WI.${date}.soft-filter.vcf.gz;
-        }     > WI.${date}.soft-filter.filter_stats.txt
-
-    """
-}
-
-/*==============================================
-~ ~ ~ > *   Apply Hard Filters on VCF  * < ~ ~ ~
-==============================================*/
-
-process hard_filter {
-
-
-    label 'lg'
-
-    publishDir "${params.output}/variation", mode: 'copy'
-
-    input:
-        tuple path(vcf), path(vcf_index), path(contigs)
-
-    output:
-        tuple path("WI.${date}.hard-filter.vcf.gz"), path("WI.${date}.hard-filter.vcf.gz.csi"), emit: 'vcf'
-        path "WI.${date}.hard-filter.vcf.gz.tbi"
-        path "WI.${date}.hard-filter.stats.txt", emit: 'hard_vcf_stats'
-
-
-    """
-        function cleanup {
-            # cleanup files on completion
-            rm I.vcf.gz II.vcf.gz III.vcf.gz IV.vcf.gz V.vcf.gz X.vcf.gz MtDNA.vcf.gz
-        }
-        trap cleanup EXIT
-
-        # Generate hard-filtered VCF
-        function generate_hard_filter {
-            if [ \${1} == "${params.mito_name}" ]
-            then
-                bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} | \\
-                bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth"' | \\
-                bcftools filter -O u --exclude 'FILTER != "PASS"' | \\
-                bcftools view -O v --min-af 0.000001 --max-af 0.999999 | \\
-                vcffixup - | \\
-                bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
-            else
-                bcftools view -m2 -M2 --trim-alt-alleles -O u --regions \${1} ${vcf} | \\
-                bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' | \\
-                bcftools filter -O u --exclude 'FILTER != "PASS"' | \\
-                bcftools view -O v --min-af 0.000001 --max-af 0.999999 | \\
-                vcffixup - | \\
-                bcftools view -O z --trim-alt-alleles > \${1}.vcf.gz
-            fi
-        }
-
-        export -f generate_hard_filter
-
-        parallel --verbose generate_hard_filter :::: ${contigs}
-
-
-        awk '{ print \$0 ".vcf.gz" }' ${contigs} > contig_set.tsv
-        bcftools concat  -O z --file-list contig_set.tsv > WI.${date}.hard-filter.vcf.gz
-
-        bcftools index WI.${date}.hard-filter.vcf.gz
-        bcftools index --tbi WI.${date}.hard-filter.vcf.gz
-        bcftools stats -s- --verbose WI.${date}.hard-filter.vcf.gz > WI.${date}.hard-filter.stats.txt
-    """
-}
-
-
-
-
-process multiqc_report {
-
-    container 'andersenlab/multiqc:2022030115492310c8da'
-    publishDir "${params.output}/report", mode: 'copy'
-
-    input:
-        path("*")
-
-    output:
-        file("multiqc_data/*.json")
-        path "multiqc.html", emit: "for_report"
-
-    """
-        multiqc -k json --filename multiqc.html .
-    """
-
-}
-
-
-// gatk report for cendr
-process html_report {
-
-    container 'andersenlab/r_packages:latest'
-
-    publishDir "${params.output}", mode: 'copy'
-
-    input:
-        tuple path("multiqc.html"), path("soft_filter_filter"), path("soft_filter_stats"), path("hard_filter_stats")
-
-    output:
-        file("*.html")
-
-    """
-    cat "${workflow.projectDir}/bin/gatk_report.Rmd" | \\
-        sed -e 's/RELEASE_DATE/${date}/g' |
-        sed -e 's+variation/WI.{vcf_date}.soft-filter.stats.txt+${soft_filter_stats}+g' |
-        sed -e 's+variation/WI.{vcf_date}.hard-filter.stats.txt+${hard_filter_stats}+g' |
-        sed -e 's+variation/WI.{vcf_date}.soft-filter.filter_stats.txt+${soft_filter_filter}+g' > gatk_report_${date}.Rmd
-    Rscript -e "rmarkdown::render('gatk_report_${date}.Rmd')"
-        
-    """
-
-}
-
-

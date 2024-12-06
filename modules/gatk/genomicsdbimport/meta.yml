@@ -1,0 +1,44 @@
+name: gatk_genomicsdbimport
+description: Create genomics DB for all samples for a given contig
+keywords:
+  - vcf
+tools:
+  - gatk4:
+      description: |
+        Developed in the Data Sciences Platform at the Broad Institute, the toolkit offers a wide variety of tools
+        with a primary focus on variant discovery and genotyping. Its powerful processing engine
+        and high-performance computing features make it capable of taking on projects of any size.
+      homepage: https://gatk.broadinstitute.org/hc/en-us
+      documentation: https://gatk.broadinstitute.org/hc/en-us/categories/360002369672s
+      doi: 10.1158/1538-7445.AM2017-3590
+      licence: ["Apache-2.0"]
+input:
+  - meta:
+      type: map
+      description: |
+        Groovy Map containing sample information
+        e.g. [contig:'III']
+  - vcfs:
+      type: path
+      description: Path to all gvcf files
+      pattern: "*.g.vcf.gz"
+  - sample_map:
+      type: path
+      description: File with sample names and sample gvcf files, one per line
+      pattern: "*"
+output:
+  - meta:
+      type: map
+      description: |
+        Groovy Map containing sample information
+        e.g. [contig:'III']
+  - contigdb:
+      type: path
+      description: Genomics DB file
+      pattern: "*.db"
+  - versions:
+      type: path
+      description: File containing software versions
+      pattern: "versions.yml"
+authors:
+  - "@mikesauria"

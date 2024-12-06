@@ -1,0 +1,28 @@
+name: sample_sheet_create_bam_sample_sheet
+description: Get a list of sample names that are missing a gVCF file
+keywords:
+tools:
+input:
+  - bam:
+      type: path
+      description: Sample sheet with a list of sample names, one per line
+      pattern: "*"
+  - bam_folder:
+      type: path
+      description: Path to folder containing sample bam files
+      pattern: "*"
+  - bam_folder:
+      type: path
+      description: Path to folder containing sample gVCF files
+      pattern: "*"
+output:
+  - samples:
+      type: path
+      description: Text file with list of samples, one per line
+      pattern: "sample_sheet_bam.txt"
+  - versions:
+      type: path
+      description: File containing software versions
+      pattern: "versions.yml"
+authors:
+  - "@mikesauria"
