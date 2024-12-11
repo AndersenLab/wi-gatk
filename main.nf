@@ -27,96 +27,114 @@ include { LOCAL_REPORT                                      } from "./modules/lo
 // Needed to publish results
 nextflow.preview.output = true
 
-// assert System.getenv("NXF_VER") >= "24"
-
-/*
-    Params
-*/
-
 date = new Date().format( 'yyyyMMdd' )
-params.mito_name = "MtDNA" // Name of contig to skip het polarization
-// params.R_libpath = "/projects/b1059/software/R_lib_3.6.0/"
-
-
-// Check that reference exists
-// params.reference = ""
-//reference = file(params.reference, checkIfExists: true)
 
 // Debug
 if (params.debug) {
-    params.species = "c_elegans"
-    output_dir = "release-debug"
-    params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.tsv"
-    // this is stupid, I'm not sure why it isn't working
-    if(params.bam_location != "") {
-        bam_folder = "${params.bam_location}"
+    species = "c_elegans"
+    params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.txt"
+    bam_folder = "${workflow.projectDir}/test_data/bams"
+    gvcf_folder = "${workflow.projectDir}/test_data/gVCFs"
+}
+
+if (params.help == false & params.debug == false) {
+    if (params.species == null) {
+        println """
+        Please specify a species with option --species
+        """
+        exit 1
     } else {
-        bam_folder = "${workflow.projectDir}"
+        species = params.species
     }
-} else {
-    // The strain sheet that used for 'production' is located in the root of the git repo
-    if (params.output == null){
-        output_dir = "WI-${date}"
+    if (params.sample_sheet == null) {
+        println """
+        Please specify a sample sheet with option --sample_sheet
+        """
+        exit 1
+    }
+    if (species != "c_elegans" & species != "c_briggsae" & species != "c_tropicalis"){
+        if (params.reference == null) {
+            println """
+            When using a species other than C. elegans, C. briggsae, or C. tropicalis,
+            a reference genome must be specified with option --reference
+            """
+            exit 1
+        }
+        if (params.bam_location == null) {
+            println """
+            When using a species other than C. elegans, C. briggsae, or C. tropicalis,
+            a BAM directory must be specified with option --bam_location
+            """
+            exit 1
+        }
+        if (params.gvcf_location == null) {
+            println """
+            When using a species other than C. elegans, C. briggsae, or C. tropicalis,
+            a gVCF directory must be specified with option --gvcf_location
+            """
+            exit 1
+        }
     } else {
-        output_dir = params.output
+        if(params.bam_location != null) {
+            bam_folder = "${params.bam_location}"
+        } else {
+            bam_folder = "${params.data_path}/${species}/WI/alignments/"
+        }
+        if(params.gvcf_location != null) {
+            gvcf_folder = "${params.gvcf_location}"
+        } else {
+            gvcf_folder = "${params.data_path}/${species}/WI/gVCFs/"
+        }
     }
-    params.sample_sheet = "${workflow.projectDir}/sample_sheet.tsv"
+} else if (params.debug == false) {
     if(params.bam_location != null) {
         bam_folder = "${params.bam_location}"
-    } else {
-        bam_folder = "${params.data_path}/${params.species}/WI/alignments/"
+    } else if (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis"){
+        bam_folder = "${params.data_path}/${species}/WI/alignments/"
     }
     if(params.gvcf_location != null) {
         gvcf_folder = "${params.gvcf_location}"
-    } else {
-        gvcf_folder = "${params.data_path}/${params.species}/WI/gVCFs/"
+    } else if (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis"){
+        gvcf_folder = "${params.data_path}/${species}/WI/gVCFs/"
     }
 }
 
 // set default project and ws build for species
-if(params.species == "c_elegans") {
+if(species == "c_elegans") {
     params.project="PRJNA13758"
     params.ws_build="WS283"
-} else if(params.species == "c_briggsae") {
+} else if(species == "c_briggsae") {
     params.project="QX1410_nanopore"
     params.ws_build="Feb2020"
-} else if(params.species == "c_tropicalis") {
+} else if(species == "c_tropicalis") {
     params.project="NIC58_nanopore"
     params.ws_build="June2021"
 }
 
-
 // check reference
 if (params.reference == null){
-    if(params.data_path != null && (params.species == "c_elegans" | params.species == "c_briggsae" | params.species == "c_tropicalis")) {
-        reference = "${params.data_path}/${params.species}/genomes/${params.project}/${params.ws_build}/${params.species}.${params.project}.${params.ws_build}.genome.fa.gz"
+    if(params.data_path != null && (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis")) {
+        reference = "${params.data_path}/${species}/genomes/${params.project}/${params.ws_build}/${species}.${params.project}.${params.ws_build}.genome.fa.gz"
     } else if (params.help) {
+        reference = null
     } else { 
         println """
-
-        Please specify a species: c_elegans c_brigssae c_tropicalis with option --species, or a ref genome with --reference"
-
+        Please specify c_elegans, c_brigssae, or c_tropicalis as the species with option --species
+        or a reference genome with --reference
         """
         exit 1
     }
 } else {
     reference = params.reference
 }
-ref_base = reference.take(reference.take(reference.lastIndexOf('.') - 1).lastIndexOf("."))
-reference_fa = "${reference}"
-reference_index = "${reference}.fai"
-reference_dict = "${ref_base}.dict"
-reference_gzi = "${reference}.gzi"
 
-
-// Variant Filtering
-params.min_depth = 5
-params.qual = 30.0
-params.strand_odds_ratio = 5.0
-params.quality_by_depth = 20.0
-params.fisherstrand = 100.0
-params.high_missing = 0.95
-params.high_heterozygosity = 0.10
+if (reference != null){
+    ref_base = reference.take(reference.take(reference.lastIndexOf('.') - 1).lastIndexOf("."))
+    reference_fa = "${reference}"
+    reference_index = "${reference}.fai"
+    reference_dict = "${ref_base}.dict"
+    reference_gzi = "${reference}.gzi"
+}
 
 
 def log_summary() {
@@ -129,40 +147,41 @@ def log_summary() {
                                               
 '''
 
-// out += """
+out += """
 
-// To run the pipeline:
+To run the pipeline:
 
-// nextflow main.nf --debug
-// nextflow main.nf -profile debug
-// nextflow main.nf --sample_sheet=/path/sample_sheet_GATK.tsv --bam_location=/${params.data_path}/workflows/alignment-nf/
+nextflow main.nf --help
+nextflow main.nf --debug
+nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam_location=/path/to/bams --gvcf_location=/path/to/gvcfs
 
-//     parameters                 description                           Set/Default
-//     ==========                 ===========                           ========================
-//     --debug                    Use --debug to indicate debug mode    ${params.debug}
-//     --output                   Release Directory                     ${params.output}
-//     --sample_sheet             Sample sheet                          ${params.sample_sheet}
-//     --bam_location             Directory of bam files                ${bam_folder}
-//     --reference                Reference Genome                      ${params.reference}
-//     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
-//     --username                                                       ${"whoami".execute().in.text}
+    parameters                 description                           Set/Default
+    ==========                 ===========                           ========================
+    --debug                    Use --debug to indicate debug mode    ${params.debug}
+    --species                  Species to call variants from         ${species}
+    --sample_sheet             Sample sheet                          ${params.sample_sheet}
+    --bam_location             Directory of BAM files                ${bam_folder}
+    --gvcf_location            Directory of gVCF files               ${gvcf_folder}
+    --reference                Reference Genome                      ${params.reference}
+    --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
+    --username                                                       ${"whoami".execute().in.text}
 
-//     Reference Genome
-//     --------------- 
-//     --species/project/build    These 4 params form --reference       ${params.species} / ${params.project} / ${params.ws_build}
+    Reference Genome
+    --------------- 
+    --reference                The fa.gz reference file to use       ${reference}
 
-//     Variant Filters         
-//     ---------------           
-//     --min_depth                Minimum variant depth                 ${params.min_depth}
-//     --qual                     Variant QUAL score                    ${params.qual}
-//     --strand_odds_ratio        SOR_strand_odds_ratio                 ${params.strand_odds_ratio} 
-//     --quality_by_depth         QD_quality_by_depth                   ${params.quality_by_depth} 
-//     --fisherstrand             FS_fisher_strand                      ${params.fisherstrand}
-//     --high_missing             Max % missing genotypes               ${params.high_missing}
-//     --high_heterozygosity      Max % max heterozygosity              ${params.high_heterozygosity}
+    Variant Filters         
+    ---------------           
+    --min_depth                Minimum variant depth                 ${params.min_depth}
+    --qual                     Variant QUAL score                    ${params.qual}
+    --strand_odds_ratio        SOR_strand_odds_ratio                 ${params.strand_odds_ratio} 
+    --quality_by_depth         QD_quality_by_depth                   ${params.quality_by_depth} 
+    --fisherstrand             FS_fisher_strand                      ${params.fisherstrand}
+    --high_missing             Max % missing genotypes               ${params.high_missing}
+    --high_heterozygosity      Max % max heterozygosity              ${params.high_heterozygosity}
 
-// ---
-// """
+---
+"""
 out
 }
 
@@ -182,7 +201,7 @@ workflow {
         .ifEmpty { exit 1, "sample sheet not found" }
 
     // Make channel for reference
-    reference_ch = Channel.of( ["id": params.species] )
+    reference_ch = Channel.of( ["id": species] )
         .combine(Channel.fromPath(reference_fa, checkIfExists: true))
         .combine(Channel.fromPath(reference_index, checkIfExists: true))
         .combine(Channel.fromPath(reference_dict, checkIfExists: true))
@@ -287,7 +306,7 @@ workflow {
     cohort_contig_bcf_ch = BCFTOOLS_COMPRESS.out.vcf
         .map{ it: [it[0].contig, it[1], it[2]] } 
         .groupTuple()
-        .map{ it: [[contig: it[0], id: params.species], it[1], it[2]] }
+        .map{ it: [[contig: it[0], id: species], it[1], it[2]] }
 
     // Concatenate VCFs by contig and perform het polarization
     LOCAL_HETPOLARIZATION( cohort_contig_bcf_ch,
@@ -350,12 +369,15 @@ workflow {
     ch_versions = ch_versions.mix(LOCAL_REPORT.out.versions)
 
     publish:
-    BCFTOOLS_CONCAT_GVCFS.out.vcf     >> "gVCFs"
-    BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf >> "variants"
-    BCFTOOLS_CONCAT_HARD_VCFS.out.vcf >> "variants"
-    MULTIQC_REPORT.out.report         >> "."
-    MULTIQC_REPORT.out.json           >> "."
-    LOCAL_REPORT.out.html             >> "."
+    BCFTOOLS_CONCAT_GVCFS.out.vcf         >> "gVCFs"
+    BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf     >> "variation"
+    BCFTOOLS_CONCAT_HARD_VCFS.out.vcf     >> "variation"
+    LOCAL_VCF_STATS.out.soft_filter_stats >> "variation"
+    LOCAL_VCF_STATS.out.soft_stats        >> "variation"
+    LOCAL_VCF_STATS.out.hard_stats        >> "variation"
+    MULTIQC_REPORT.out.report             >> "report"
+    MULTIQC_REPORT.out.json               >> "report"
+    LOCAL_REPORT.out.html                 >> "report"
 }
 
 // Current bug that publish doesn't work without an output closure
@@ -363,10 +385,10 @@ output {
     "gVCFs" {
         mode "copy"
     }
-    "variants" {
+    "variation" {
         mode "copy"
     }
-    "." {
+    "report" {
         mode "copy"
     }
 }

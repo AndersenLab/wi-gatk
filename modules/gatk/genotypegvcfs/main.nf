@@ -16,7 +16,7 @@ process GATK_GENOTYPEGVCFS {
     def args = task.ext.args ?: ''
     def avail_mem = (task.memory.giga*0.9).intValue()
     """
-    gatk  --java-options "-Xmx${avail_mem}g -XX:ConcGCThreads=${task.cpus}" \\
+    gatk  --java-options "-Xmx${avail_mem}g -XX:ConcGCThreads=${task.cpus} -XX:-UsePerfData" \\
         GenotypeGVCFs \\
         -R ref.fa.gz \\
         -V gendb://${contig_db} \\
