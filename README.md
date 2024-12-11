@@ -27,13 +27,12 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --sample_sheet             Sample sheet                          null
     --bam_location             Directory of BAM files                {dataDir}/{species}/WI/alignments
     --gvcf_location            Directory of gVCF files               {dataDir}/{species}/WI/gVCFs
-    --reference                Reference Genome                      {dataDir}/{species}/genomes/{project}/{ws_build}/{species}.{project}.{ws_build}.genome.fa.gz
     --mito_name                Contig not to polarize hetero sites   MtDNA
     --username                                                       {user}
 
     Reference Genome
     --------------- 
-    --reference                The fa.gz reference file to use       {reference}
+    --reference                The fa.gz reference file to use       {dataDir}/{species}/genomes/{project}/{ws_build}/{species}.{project}.{ws_build}.genome.fa.gz
 
     Variant Filters         
     ---------------           

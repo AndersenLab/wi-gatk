@@ -162,7 +162,6 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --sample_sheet             Sample sheet                          ${params.sample_sheet}
     --bam_location             Directory of BAM files                ${bam_folder}
     --gvcf_location            Directory of gVCF files               ${gvcf_folder}
-    --reference                Reference Genome                      ${params.reference}
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
     --username                                                       ${"whoami".execute().in.text}
 
