@@ -3,6 +3,7 @@ process SAMTOOLS_GET_CONTIGS {
 
     input:
     tuple val(meta), path(bam), path(bam_index)
+    val partition_size
 
     output:
     path("contigs.txt"),     emit: contigs
@@ -31,10 +32,10 @@ process SAMTOOLS_GET_CONTIGS {
     CHROMS=(\$(cut -f 1 chrom_sizes.txt))
     SIZES=(\$(cut -f 2 chrom_sizes.txt))
     for I in \$(seq 0 1 \$(expr \${#CHROMS[*]} - 1 )); do
-        if [ \${SIZES[\${I}]} -lt 1000000 ]; then
+        if [ \${SIZES[\${I}]} -lt ${partition_size} ]; then
             N=1
         else
-            N=\$(expr \${SIZES[\${I}]} / 1000000 )
+            N=\$(expr \${SIZES[\${I}]} / ${partition_size} )
         fi
         STEP=\$(expr \${SIZES[\${I}]} / \$N )
         START=1

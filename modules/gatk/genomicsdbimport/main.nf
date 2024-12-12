@@ -7,8 +7,8 @@ process GATK_GENOMICSDBIMPORT {
     path(sample_map)
 
     output:
-    tuple val(meta), file("${meta.contig}.db"), emit: db
-    path  "versions.yml",                       emit: versions
+    tuple val(meta), file("${meta.label}.db"), emit: db
+    path  "versions.yml",                      emit: versions
 
     when:
     task.ext.when == null || task.ext.when
@@ -19,9 +19,9 @@ process GATK_GENOMICSDBIMPORT {
     """
     gatk  --java-options "-Xmx${avail_mem}g -XX:ConcGCThreads=${task.cpus}" \\
         GenomicsDBImport \\
-        --genomicsdb-workspace-path ${meta.contig}.db \\
+        --genomicsdb-workspace-path ${meta.label}.db \\
         --batch-size 16 \\
-        -L ${meta.contig} \\
+        -L ${meta.interval} \\
         --sample-name-map ${sample_map}
 
     cat <<-END_VERSIONS > versions.yml
@@ -32,7 +32,7 @@ process GATK_GENOMICSDBIMPORT {
 
     stub:
     """
-    touch ${meta.contig}.db
+    touch ${meta.label}.db
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

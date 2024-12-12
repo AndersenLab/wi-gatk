@@ -163,6 +163,7 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --bam_location             Directory of BAM files                ${bam_folder}
     --gvcf_location            Directory of gVCF files               ${gvcf_folder}
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
+    --partition                Partition size in bp for subsetting   ${params.partition}
     --username                                                       ${"whoami".execute().in.text}
 
     Reference Genome
@@ -190,6 +191,9 @@ if (params.help == true) {
     exit 1
 }
 
+now = new Date()
+timestamp = now.format("yyyyMMdd-HH-mm-ss")
+log.info("Started running ${now}")
 
 workflow {
     main:
@@ -230,11 +234,16 @@ workflow {
     // Get contigs from bam file
     SAMTOOLS_GET_CONTIGS( sample_sheet_ch.splitCsv( strip: true )
         .first()
-        .map{ it: [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] } )
+        .map{ it: [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] },
+        params.partition )
     ch_versions = ch_versions.mix(SAMTOOLS_GET_CONTIGS.out.versions)
 
     partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
         .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
+
+    ///////////////////////////////////////////////////////
+    // This section is for samples missing premade gVCFs //
+    ///////////////////////////////////////////////////////
 
     // Create sample by contig channel
     bam_contig_ch = bam_ch
@@ -276,10 +285,12 @@ workflow {
         .collectFile(name: "sample_map.tsv", newLine: true)
         .first()
 
-    // Combine allgVCFs with contigs
-    all_gvcf_contig_ch = SAMTOOLS_GET_CONTIGS.out.contigs
-        .splitCsv( strip: true )
-        .map{ it: [contig: it[0]] }
+    ///////////////////////////////////////////////////////
+    // This section uses all gVCFs for joint genotyping  //
+    ///////////////////////////////////////////////////////
+
+    // Combine allgVCFs with partitions
+    all_gvcf_contig_ch = partitions_ch
         .combine(all_gvcfs_ch)
 
     // Create a genomics db for each contig
@@ -287,13 +298,8 @@ workflow {
                            sample_map_ch )
     ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
-    // Join contig intervals with proper contig DB
-    gvcfdb_interval_ch = GATK_GENOMICSDBIMPORT.out.db.map{ it: [it[0].contig, it[1]] }
-        .cross( partitions_ch.map{ it: [it.contig, it]} )
-        .map{ it: [it[1][1], it[0][1]] }
-
     // Genotype cohort contig db
-    GATK_GENOTYPEGVCFS( gvcfdb_interval_ch,
+    GATK_GENOTYPEGVCFS( GATK_GENOMICSDBIMPORT.out.db,
                         reference_ch )
     ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
 
