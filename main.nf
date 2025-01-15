@@ -14,10 +14,11 @@ include { GATK_HAPLOTYPECALLER                              } from "./modules/ga
 include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_GVCFS     } from "./modules/bcftools/concat_vcfs/main"
 include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_SOFT_VCFS } from "./modules/bcftools/concat_vcfs/main"
 include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_HARD_VCFS } from "./modules/bcftools/concat_vcfs/main"
+include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_SOFT } from "./modules/bcftools/concat_overlapping_vcfs/main"
+include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_HARD } from "./modules/bcftools/concat_overlapping_vcfs/main"
 include { GATK_GENOMICSDBIMPORT                             } from "./modules/gatk/genomicsdbimport/main"
 include { GATK_GENOTYPEGVCFS                                } from "./modules/gatk/genotypegvcfs/main"
 include { LOCAL_HETPOLARIZATION                             } from "./modules/local/hetpolarization/main"
-include { BCFTOOLS_COMPRESS                                 } from "./modules/bcftools/compress/main"
 include { GATK_SOFT_FILTER                                  } from "./modules/gatk/soft_filter/main"
 include { LOCAL_FILTER                                      } from "./modules/local/filter/main"
 include { LOCAL_VCF_STATS                                   } from "./modules/local/vcf_stats/main"
@@ -303,19 +304,8 @@ workflow {
                         reference_ch )
     ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
 
-    // Compress VCFs to VCF.gz
-    BCFTOOLS_COMPRESS( GATK_GENOTYPEGVCFS.out.vcf )
-    ch_versions = ch_versions.mix(BCFTOOLS_COMPRESS.out.versions)
-
-    // Collect cohort VCFs by contig for concatenation and het polarization
-    cohort_contig_bcf_ch = BCFTOOLS_COMPRESS.out.vcf
-        .map{ it: [it[0].contig, it[1], it[2]] } 
-        .groupTuple()
-        .map{ it: [[contig: it[0], id: species], it[1], it[2]] }
-
     // Concatenate VCFs by contig and perform het polarization
-    LOCAL_HETPOLARIZATION( cohort_contig_bcf_ch,
-                           SAMTOOLS_GET_CONTIGS.out.partitions,
+    LOCAL_HETPOLARIZATION( GATK_GENOTYPEGVCFS.out.vcf,
                            params.mito_name )
     ch_versions = ch_versions.mix(LOCAL_HETPOLARIZATION.out.versions)
 
@@ -332,17 +322,37 @@ workflow {
                   params.mito_name )
     ch_versions = ch_versions.mix(LOCAL_FILTER.out.versions)
 
-    // Collect genotyped concatenated contigs together
-    soft_vcf_ch = LOCAL_FILTER.out.soft
-        .map{ it: it[1] }
-        .collect()
-        .map{ it: [[id: "soft"], it] }
+    // Collect cohort VCFs by contig for concatenation
+    soft_cohort_contig_ch = LOCAL_FILTER.out.soft
+        .map{ it: [it[0].contig, it[1], it[2]] } 
+        .groupTuple()
+        .map{ it: [[contig: it[0], id: "soft"], it[1], it[2]] }
 
-    hard_vcf_ch = LOCAL_FILTER.out.hard
+    hard_cohort_contig_ch = LOCAL_FILTER.out.hard
+        .map{ it: [it[0].contig, it[1], it[2]] } 
+        .groupTuple()
+        .map{ it: [[contig: it[0], id: "hard"], it[1], it[2]] }
+
+    // Concat partitioned filtered vcfs
+    BCFTOOLS_CONCAT_OVERLAPPING_SOFT( soft_cohort_contig_ch,
+                                      SAMTOOLS_GET_CONTIGS.out.partitions )
+
+    BCFTOOLS_CONCAT_OVERLAPPING_HARD( hard_cohort_contig_ch,
+                                      SAMTOOLS_GET_CONTIGS.out.partitions )
+
+    // Collect genotyped concatenated contigs together
+    soft_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_SOFT.out.vcf
         .map{ it: it[1] }
-        .collect()
+        .toSortedList()
+        .map{ it: [[id: "soft"], it] }
+        .view()
+
+    hard_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_HARD.out.vcf
+        .map{ it: it[1] }
+        .toSortedList()
         .map{ it: [[id: "hard"], it] }
-        
+        .view()
+
     // Combine contigs for soft-filtered variant calls
     BCFTOOLS_CONCAT_SOFT_VCFS( soft_vcf_ch,
                                SAMTOOLS_GET_CONTIGS.out.contigs )

@@ -67,16 +67,15 @@ nextflow run -latest andersenlab/wi-gatk --sample_sheet=/path/sample_sheet_GATK.
 
 # Parameters
 
-## -profile
+## -profile ( optional )
+
+__default__ = rockfish
 
 There are three configuration profiles for this pipeline.
 
-* `rockfish` - Used for running on Rockfish (default).
-* `quest`    - Used for running on Quest.
-* `local`    - Used for local development.
-
->[!Note]
->If you forget to add a `-profile`, the `rockfish` profile will be chosen as default
+* `rockfish` - Used for running on Rockfish
+* `quest`    - Used for running on Quest
+* `local`    - Used for local development
 
 ## --sample_sheet
 

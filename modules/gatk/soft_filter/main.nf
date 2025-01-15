@@ -1,9 +1,10 @@
 process GATK_SOFT_FILTER {
+    tag "${meta.label}"
     label 'gatk_soft_filter'
     errorStrategy 'retry'
-    time { 2.hour * task.attempt }
-    cpus = { 2 * task.attempt }
-    memory = { 8.GB * task.attempt }
+    time { 1.hour * task.attempt }
+    cpus = { 1 * task.attempt }
+    memory = { 4.GB * task.attempt }
 
     input:
     val filter_params
@@ -11,7 +12,7 @@ process GATK_SOFT_FILTER {
     tuple val(meta2), path("ref.fa.gz"), path("ref.fa.gz.fai"), path("ref.dict"), path("ref.fa.gz.gzi")
 
     output:
-    tuple val(meta), path("${meta.contig}.gatksoft.vcf"), emit: vcf
+    tuple val(meta), path("${meta.label}.gatksoft.vcf"), emit: vcf
     path  "versions.yml",                                emit: versions
     
     when:
@@ -31,7 +32,7 @@ process GATK_SOFT_FILTER {
         --filter-expression "QD < ${filter_params.quality_by_depth}"      --filter-name "QD_quality_by_depth" \\
         --filter-expression "SOR > ${filter_params.strand_odds_ratio}"    --filter-name "SOR_strand_odds_ratio" \\
         --genotype-filter-expression "isHet == 1"                         --genotype-filter-name "is_het" \\
-        -O ${meta.contig}.gatksoft.vcf
+        -O ${meta.label}.gatksoft.vcf
     
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -41,7 +42,7 @@ process GATK_SOFT_FILTER {
 
     stub:
     """
-    touch ${meta.contig}.gatksoft.vcf
+    touch ${meta.label}.gatksoft.vcf
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

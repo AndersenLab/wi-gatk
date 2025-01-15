@@ -1,5 +1,9 @@
 process LOCAL_VCF_STATS {
     label 'local_vcf_stats'
+    errorStrategy 'retry'
+    cpus { 1 * task.attempt }
+    time { 2.hour * task.attempt }
+    memory { 4.GB * task.attempt }
 
     input:
     tuple val(meta), path(soft_vcf), path(soft_index)

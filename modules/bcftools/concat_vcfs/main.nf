@@ -2,7 +2,7 @@ process BCFTOOLS_CONCAT_VCFS {
     tag "${meta.id}"
     label 'bcftools_concat_vcfs'
     errorStrategy 'retry'
-    time { 20.minute * task.attempt }
+    time { 3.hour * task.attempt }
     cpus = { 1 * task.attempt }
     memory = { 4.GB * task.attempt }
 

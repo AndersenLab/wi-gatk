@@ -1,7 +1,7 @@
 process LOCAL_REPORT {
     label 'local_report'
     errorStrategy 'retry'
-    time { 1.hour * task.attempt }
+    time { 10.hour * task.attempt }
     cpus = { 1 * task.attempt }
     memory = { 4.GB * task.attempt }
 

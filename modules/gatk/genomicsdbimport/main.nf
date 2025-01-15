@@ -1,5 +1,5 @@
 process GATK_GENOMICSDBIMPORT {
-    tag "${meta.contig}"
+    tag "${meta.label}"
     label 'gatk_genomicsdbimport'
 
     input:

@@ -1,7 +1,7 @@
 process MULTIQC_REPORT {
     label 'multiqc_report'
     errorStrategy 'retry'
-    time { 1.hour * task.attempt }
+    time { 3.hour * task.attempt }
     cpus = { 1 * task.attempt }
     memory = { 4.GB * task.attempt }
 

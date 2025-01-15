@@ -1,18 +1,18 @@
 process LOCAL_HETPOLARIZATION {
+    tag "${meta.label}"
     label 'local_hetpolarization'
     errorStrategy 'retry'
-    time { 2.hour * task.attempt }
-    cpus = { 2 * task.attempt }
-    memory = { 8.GB * task.attempt }
+    time { 4.hour * task.attempt }
+    cpus = { 1 * task.attempt }
+    memory = { 32.GB * task.attempt }
 
     input:
-    tuple val(meta), path(vcfs), path(indices)
-    path partitions
+    tuple val(meta), path(vcf)
     val mito_name
 
     output:
-    tuple val(meta), path("${meta.contig}.${meta.id}.vcf.gz"), path("${meta.contig}.${meta.id}.vcf.gz.tbi"), emit: vcf
-    path  "versions.yml",                                                                                    emit: versions
+    tuple val(meta), path("${meta.label}.vcf.gz"), path("${meta.label}.vcf.gz.tbi"), emit: vcf
+    path  "versions.yml",                                                            emit: versions
 
     when:
     task.ext.when == null || task.ext.when
@@ -20,25 +20,19 @@ process LOCAL_HETPOLARIZATION {
     script:
     def args = task.ext.args ?: ''
     """
-    grep -w ${meta.contig} ${partitions} | awk '{printf "%s_%i_%i.vcf.gz\\n", \$1, \$3, \$4}' > sample_list.txt
-
-
     if [ "${meta.contig}" == "${mito_name}" ]
     then
-        #bcftools index -c tmp.bcf
-        bcftools concat -a -d all -f sample_list.txt -O b | \\
-        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} - | \\
+        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} ${vcf} | \\
         vcffixup - | \\
-        bcftools view -O z - > ${meta.contig}.${meta.id}.vcf.gz
+        bcftools view -O z - > ${meta.label}.vcf.gz
     else
-        #bcftools index -c tmp.bcf
-        bcftools concat -a -d all -f sample_list.txt -O z | \\
+        bcftools view -O z ${vcf} | \\
         het_polarization | \\
         bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} | \\
         vcffixup - | \\
-        bcftools view -O z - > ${meta.contig}.${meta.id}.vcf.gz
+        bcftools view -O z - > ${meta.label}.vcf.gz
     fi
-    bcftools index -t ${meta.contig}.${meta.id}.vcf.gz
+    bcftools index -t ${meta.label}.vcf.gz
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -48,8 +42,8 @@ process LOCAL_HETPOLARIZATION {
 
     stub:
     """
-    touch ${meta.contig}.${meta.id}.vcf.gz
-    touch ${meta.contig}.${meta.id}.vcf.gz.tbi
+    touch ${meta.label}.vcf.gz
+    touch ${meta.label}.vcf.gz.tbi
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
