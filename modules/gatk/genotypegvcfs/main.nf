@@ -2,9 +2,9 @@ process GATK_GENOTYPEGVCFS {
     tag "${meta.label}"
     label 'gatk_genotypegvcfs'
     errorStrategy 'retry'
-    cpus = 8
-    time = { 24.hour * task.attempt }
-    memory = "32 GB"
+    cpus = { 8 * task.attempt }
+    time = { 72.hour }
+    memory = { 32.GB * task.attempt }
 
     input:
     tuple val(meta), path(contig_db)
@@ -21,7 +21,7 @@ process GATK_GENOTYPEGVCFS {
     def args = task.ext.args ?: ''
     def avail_mem = (task.memory.giga*0.9).intValue()
     """
-    gatk  --java-options "-Xmx${avail_mem}g -XX:ConcGCThreads=${task.cpus} -XX:-UsePerfData" \\
+    gatk  --java-options "-Xmx${avail_mem}g -XX:-UsePerfData" \\
         GenotypeGVCFs \\
         -R ref.fa.gz \\
         -V gendb://${contig_db} \\

@@ -16,6 +16,7 @@ include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_SOFT_VCFS } from "./modules/bc
 include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_HARD_VCFS } from "./modules/bcftools/concat_vcfs/main"
 include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_SOFT } from "./modules/bcftools/concat_overlapping_vcfs/main"
 include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_HARD } from "./modules/bcftools/concat_overlapping_vcfs/main"
+include { BCFTOOLS_SPLIT_SAMPLES                            } from "./modules/bcftools/split_samples/main"
 include { GATK_GENOMICSDBIMPORT                             } from "./modules/gatk/genomicsdbimport/main"
 include { GATK_GENOTYPEGVCFS                                } from "./modules/gatk/genotypegvcfs/main"
 include { LOCAL_HETPOLARIZATION                             } from "./modules/local/hetpolarization/main"
@@ -165,6 +166,8 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --gvcf_location            Directory of gVCF files               ${gvcf_folder}
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
     --partition                Partition size in bp for subsetting   ${params.partition}
+    --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
+    --split_samples            Create individual sample vcfs         ${params.split_samples}
     --username                                                       ${"whoami".execute().in.text}
 
     Reference Genome
@@ -286,113 +289,150 @@ workflow {
         .collectFile(name: "sample_map.tsv", newLine: true)
         .first()
 
-    ///////////////////////////////////////////////////////
-    // This section uses all gVCFs for joint genotyping  //
-    ///////////////////////////////////////////////////////
+    if (params.gvcf_only == false){
+        ///////////////////////////////////////////////////////
+        // This section uses all gVCFs for joint genotyping  //
+        ///////////////////////////////////////////////////////
 
-    // Combine allgVCFs with partitions
-    all_gvcf_contig_ch = partitions_ch
-        .combine(all_gvcfs_ch)
+        // Combine allgVCFs with partitions
+        all_gvcf_contig_ch = partitions_ch
+            .combine(all_gvcfs_ch)
 
-    // Create a genomics db for each contig
-    GATK_GENOMICSDBIMPORT( all_gvcf_contig_ch,
-                           sample_map_ch )
-    ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
+        // Create a genomics db for each contig
+        GATK_GENOMICSDBIMPORT( all_gvcf_contig_ch,
+                               sample_map_ch )
+        ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
-    // Genotype cohort contig db
-    GATK_GENOTYPEGVCFS( GATK_GENOMICSDBIMPORT.out.db,
-                        reference_ch )
-    ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
+        // Genotype cohort contig db
+        GATK_GENOTYPEGVCFS( GATK_GENOMICSDBIMPORT.out.db,
+                            reference_ch )
+        ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
 
-    // Concatenate VCFs by contig and perform het polarization
-    LOCAL_HETPOLARIZATION( GATK_GENOTYPEGVCFS.out.vcf,
-                           params.mito_name )
-    ch_versions = ch_versions.mix(LOCAL_HETPOLARIZATION.out.versions)
+        // Concatenate VCFs by contig and perform het polarization
+        LOCAL_HETPOLARIZATION( GATK_GENOTYPEGVCFS.out.vcf,
+                               params.mito_name )
+        ch_versions = ch_versions.mix(LOCAL_HETPOLARIZATION.out.versions)
 
-    // Mark filtered genotypes/variants with GATK
-    GATK_SOFT_FILTER( filter_ch,
-                      LOCAL_HETPOLARIZATION.out.vcf,
-                      reference_ch )
-    ch_versions = ch_versions.mix(GATK_SOFT_FILTER.out.versions)
+        // Mark filtered genotypes/variants with GATK
+        GATK_SOFT_FILTER( filter_ch,
+                          LOCAL_HETPOLARIZATION.out.vcf,
+                          reference_ch )
+        ch_versions = ch_versions.mix(GATK_SOFT_FILTER.out.versions)
 
-    // Mark filtered genotypes/variants with bcftools and remove them
-    LOCAL_FILTER( filter_ch,
-                  GATK_SOFT_FILTER.out.vcf,
-                  reference_ch,
-                  params.mito_name )
-    ch_versions = ch_versions.mix(LOCAL_FILTER.out.versions)
+        // Mark filtered genotypes/variants with bcftools and remove them
+        LOCAL_FILTER( filter_ch,
+                      GATK_SOFT_FILTER.out.vcf,
+                      reference_ch,
+                      params.mito_name )
+        ch_versions = ch_versions.mix(LOCAL_FILTER.out.versions)
 
-    // Collect cohort VCFs by contig for concatenation
-    soft_cohort_contig_ch = LOCAL_FILTER.out.soft
-        .map{ it: [it[0].contig, it[1], it[2]] } 
-        .groupTuple()
-        .map{ it: [[contig: it[0], id: "soft"], it[1], it[2]] }
+        // Collect cohort VCFs by contig for concatenation
+        soft_cohort_contig_ch = LOCAL_FILTER.out.soft
+            .map{ it: [it[0].contig, it[1], it[2]] } 
+            .groupTuple()
+            .map{ it: [[contig: it[0], id: "soft"], it[1], it[2]] }
 
-    hard_cohort_contig_ch = LOCAL_FILTER.out.hard
-        .map{ it: [it[0].contig, it[1], it[2]] } 
-        .groupTuple()
-        .map{ it: [[contig: it[0], id: "hard"], it[1], it[2]] }
+        hard_cohort_contig_ch = LOCAL_FILTER.out.hard
+            .map{ it: [it[0].contig, it[1], it[2]] } 
+            .groupTuple()
+            .map{ it: [[contig: it[0], id: "hard"], it[1], it[2]] }
 
-    // Concat partitioned filtered vcfs
-    BCFTOOLS_CONCAT_OVERLAPPING_SOFT( soft_cohort_contig_ch,
-                                      SAMTOOLS_GET_CONTIGS.out.partitions )
+        // Concat partitioned filtered vcfs
+        BCFTOOLS_CONCAT_OVERLAPPING_SOFT( soft_cohort_contig_ch,
+                                          SAMTOOLS_GET_CONTIGS.out.partitions )
 
-    BCFTOOLS_CONCAT_OVERLAPPING_HARD( hard_cohort_contig_ch,
-                                      SAMTOOLS_GET_CONTIGS.out.partitions )
+        BCFTOOLS_CONCAT_OVERLAPPING_HARD( hard_cohort_contig_ch,
+                                          SAMTOOLS_GET_CONTIGS.out.partitions )
 
-    // Collect genotyped concatenated contigs together
-    soft_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_SOFT.out.vcf
-        .map{ it: it[1] }
-        .toSortedList()
-        .map{ it: [[id: "soft"], it] }
-        .view()
+        // Collect genotyped concatenated contigs together
+        soft_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_SOFT.out.vcf
+            .map{ it: it[1] }
+            .toSortedList()
+            .map{ it: [[id: "soft"], it] }
+            .view()
 
-    hard_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_HARD.out.vcf
-        .map{ it: it[1] }
-        .toSortedList()
-        .map{ it: [[id: "hard"], it] }
-        .view()
+        hard_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_HARD.out.vcf
+            .map{ it: it[1] }
+            .toSortedList()
+            .map{ it: [[id: "hard"], it] }
+            .view()
 
-    // Combine contigs for soft-filtered variant calls
-    BCFTOOLS_CONCAT_SOFT_VCFS( soft_vcf_ch,
-                               SAMTOOLS_GET_CONTIGS.out.contigs )
-    ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_SOFT_VCFS.out.versions)
+        // Combine contigs for soft-filtered variant calls
+        BCFTOOLS_CONCAT_SOFT_VCFS( soft_vcf_ch,
+                                  SAMTOOLS_GET_CONTIGS.out.contigs )
+        ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_SOFT_VCFS.out.versions)
 
-    // Combine contigs for hard-filtered variant calls
-    BCFTOOLS_CONCAT_HARD_VCFS( hard_vcf_ch,
-                               SAMTOOLS_GET_CONTIGS.out.contigs )
-    ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_HARD_VCFS.out.versions)
+        // Combine contigs for hard-filtered variant calls
+        BCFTOOLS_CONCAT_HARD_VCFS( hard_vcf_ch,
+                                  SAMTOOLS_GET_CONTIGS.out.contigs )
+        ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_HARD_VCFS.out.versions)
 
-    // Get filtering stats for filtered VCFs
-    LOCAL_VCF_STATS( BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf,
-                     BCFTOOLS_CONCAT_HARD_VCFS.out.vcf )
-    ch_versions = ch_versions.mix(LOCAL_VCF_STATS.out.versions)
+        // Get filtering stats for filtered VCFs
+        LOCAL_VCF_STATS( BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf,
+                         BCFTOOLS_CONCAT_HARD_VCFS.out.vcf )
+        ch_versions = ch_versions.mix(LOCAL_VCF_STATS.out.versions)
 
-    // Create multiqc report
-    MULTIQC_REPORT( LOCAL_VCF_STATS.out.soft_stats
-                        .concat(LOCAL_VCF_STATS.out.hard_stats)
-                        .collect() )
-    ch_versions = ch_versions.mix(MULTIQC_REPORT.out.versions)
+        // Create multiqc report
+        MULTIQC_REPORT( LOCAL_VCF_STATS.out.soft_stats
+                            .concat(LOCAL_VCF_STATS.out.hard_stats)
+                            .collect() )
+        ch_versions = ch_versions.mix(MULTIQC_REPORT.out.versions)
 
-    // Create GATK report
-    LOCAL_REPORT( MULTIQC_REPORT.out.report,
-                  LOCAL_VCF_STATS.out.soft_filter_stats,
-                  LOCAL_VCF_STATS.out.soft_stats,
-                  LOCAL_VCF_STATS.out.hard_stats,
-                  "${workflow.projectDir}/bin/gatk_report.Rmd",
-                  params.timestamp )
-    ch_versions = ch_versions.mix(LOCAL_REPORT.out.versions)
+        // Create GATK report
+        LOCAL_REPORT( MULTIQC_REPORT.out.report,
+                      LOCAL_VCF_STATS.out.soft_filter_stats,
+                      LOCAL_VCF_STATS.out.soft_stats,
+                      LOCAL_VCF_STATS.out.hard_stats,
+                    "${workflow.projectDir}/bin/gatk_report.Rmd",
+                    params.timestamp )
+        ch_versions = ch_versions.mix(LOCAL_REPORT.out.versions)
 
+        ch_soft_vcf       = BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf
+        ch_hard_vcf       = BCFTOOLS_CONCAT_HARD_VCFS.out.vcf
+        ch_filter_stats   = LOCAL_VCF_STATS.out.soft_filter_stats
+        ch_soft_stats     = LOCAL_VCF_STATS.out.soft_stats
+        ch_hard_stats     = LOCAL_VCF_STATS.out.hard_stats
+        ch_multiqc_report = MULTIQC_REPORT.out.report
+        ch_multiqc_json   = MULTIQC_REPORT.out.json
+        ch_local_report   = LOCAL_REPORT.out.html
+
+        if (params.split_strains == true) {
+            // Create individual vcf files for each sample
+            BCFTOOLS_SPLIT_SAMPLES( sample_sheet_ch,
+                                    BCFTOOLS_CONCAT_HARD_VCFS.out.vcf )
+            ch_strain_vcf = BCFTOOLS_SPLIT_SAMPLES.out.vcf
+                .collect()
+        } else {
+            ch_strain_vcf = Channel.empty()
+        }
+    } else {
+        ch_soft_vcf       = Channel.empty()
+        ch_hard_vcf       = Channel.empty()
+        ch_filter_stats   = Channel.empty()
+        ch_soft_stats     = Channel.empty()
+        ch_hard_stats     = Channel.empty()
+        ch_multiqc_report = Channel.empty()
+        ch_multiqc_json   = Channel.empty()
+        ch_local_report   = Channel.empty()
+    }
+
+    // Collate and save software versions
+        ch_versions
+            .collectFile(name: 'workflow_software_versions.txt', sort: true, newLine: true)
+            .set { ch_collated_versions }
+        
     publish:
-    BCFTOOLS_CONCAT_GVCFS.out.vcf         >> "gVCFs"
-    BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf     >> "variation"
-    BCFTOOLS_CONCAT_HARD_VCFS.out.vcf     >> "variation"
-    LOCAL_VCF_STATS.out.soft_filter_stats >> "variation"
-    LOCAL_VCF_STATS.out.soft_stats        >> "variation"
-    LOCAL_VCF_STATS.out.hard_stats        >> "variation"
-    MULTIQC_REPORT.out.report             >> "report"
-    MULTIQC_REPORT.out.json               >> "report"
-    LOCAL_REPORT.out.html                 >> "report"
+    BCFTOOLS_CONCAT_GVCFS.out.vcf >> "gVCFs"
+    ch_soft_vcf                   >> "variation"
+    ch_hard_vcf                   >> "variation"
+    ch_filter_stats               >> "variation"
+    ch_soft_stats                 >> "variation"
+    ch_hard_stats                 >> "variation"
+    ch_strain_vcf                 >> "variation/strain_vcf"
+    ch_multiqc_report             >> "report"
+    ch_multiqc_json               >> "report"
+    ch_local_report               >> "report"
+    ch_collated_versions          >> "."
 }
 
 // Current bug that publish doesn't work without an output closure
@@ -403,7 +443,13 @@ output {
     "variation" {
         mode "copy"
     }
+    "variation/strain_vcf" {
+        mode "copy"
+    }
     "report" {
+        mode "copy"
+    }
+    "." {
         mode "copy"
     }
 }

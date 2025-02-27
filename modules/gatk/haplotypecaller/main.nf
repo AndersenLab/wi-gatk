@@ -3,7 +3,7 @@ process GATK_HAPLOTYPECALLER {
     label 'gatk_haplotypecaller'
     //errorStrategy { task.exitStatus in 137..143 ? 'retry' : 'terminate' }
     errorStrategy 'retry'
-    time { 60.minute * task.attempt }
+    time { 120.minute * task.attempt }
     cpus = { 2 * task.attempt }
     memory = { 4.GB * task.attempt - 1.GB }
     input:

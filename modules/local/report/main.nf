@@ -2,8 +2,8 @@ process LOCAL_REPORT {
     label 'local_report'
     errorStrategy 'retry'
     time { 10.hour * task.attempt }
-    cpus = { 1 * task.attempt }
-    memory = { 4.GB * task.attempt }
+    cpus = { 2 * task.attempt }
+    memory = { 8.GB * task.attempt }
 
     input:
     path("multiqc.html")

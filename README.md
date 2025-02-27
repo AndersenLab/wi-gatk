@@ -28,6 +28,9 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --bam_location             Directory of BAM files                {dataDir}/{species}/WI/alignments
     --gvcf_location            Directory of gVCF files               {dataDir}/{species}/WI/gVCFs
     --mito_name                Contig not to polarize hetero sites   MtDNA
+    --partition                Partition size in bp for subsetting   1000000
+    --gvcf_only                Create sample gVCFs and stop          false
+    --split_samples            Create individual sample vcfs         false
     --username                                                       {user}
 
     Reference Genome
@@ -130,6 +133,24 @@ __default__ = MtDNA
 
 Name of contig to skip het polarization. Might need to change for other species besides c_elegans if the mitochondria contig is named differently
 
+## --partitions (optional)
+
+__default__ = 1000000
+
+Size in bp for partitioning the genome for subprocessing genotyping and filtering 
+
+## --gvcf_only (optional)
+
+__default__ = false
+
+Run only the gVCF creation steps of the workflow
+
+## --split_samples (optional)
+
+__default__ = false
+
+Create individual vcf files, one per sample, from the hard-filtered vcf file
+
 ## -output-dir (optional)
 
 __default__ = WI-{today's date} where the date is formatted as `YYYYMMDD` 
@@ -153,7 +174,10 @@ The final output directory looks like this:
 │   ├── *.soft-filter.vcf.gz
 │   ├── *.soft-filter.vcf.tbi
 │   ├── *.soft-filter.stats.txt
-│   └── *.soft-filter.filter_stats.txt
+│   ├── *.soft-filter.filter_stats.txt
+│   └── strain_vcf
+│       ├── *.vcf.gz
+│       └── *.vcf.gz.tbi
 └── report
     ├── multiqc.html
 	└── multiqc_data
