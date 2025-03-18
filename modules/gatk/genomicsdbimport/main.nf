@@ -3,12 +3,14 @@ process GATK_GENOMICSDBIMPORT {
     label 'gatk_genomicsdbimport'
 
     input:
-    tuple val(meta), path(vcfs)
-    path(sample_map)
+    path "premade_vcfs" 
+    path "new_vcfs/*" 
+    path sample_map
+    each interval
 
     output:
-    tuple val(meta), file("${meta.label}.db"), emit: db
-    path  "versions.yml",                      emit: versions
+    tuple val(interval), file("${interval.label}.db"), emit: db
+    path  "versions.yml",                              emit: versions
 
     when:
     task.ext.when == null || task.ext.when
@@ -19,9 +21,9 @@ process GATK_GENOMICSDBIMPORT {
     """
     gatk  --java-options "-Xmx${avail_mem}g -XX:ConcGCThreads=${task.cpus}" \\
         GenomicsDBImport \\
-        --genomicsdb-workspace-path ${meta.label}.db \\
+        --genomicsdb-workspace-path ${interval.label}.db \\
         --batch-size 16 \\
-        -L ${meta.interval} \\
+        -L ${interval.interval} \\
         --sample-name-map ${sample_map}
 
     cat <<-END_VERSIONS > versions.yml

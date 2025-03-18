@@ -16,7 +16,6 @@ include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_SOFT_VCFS } from "./modules/bc
 include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_HARD_VCFS } from "./modules/bcftools/concat_vcfs/main"
 include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_SOFT } from "./modules/bcftools/concat_overlapping_vcfs/main"
 include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_HARD } from "./modules/bcftools/concat_overlapping_vcfs/main"
-include { BCFTOOLS_SPLIT_SAMPLES                            } from "./modules/bcftools/split_samples/main"
 include { GATK_GENOMICSDBIMPORT                             } from "./modules/gatk/genomicsdbimport/main"
 include { GATK_GENOTYPEGVCFS                                } from "./modules/gatk/genotypegvcfs/main"
 include { LOCAL_HETPOLARIZATION                             } from "./modules/local/hetpolarization/main"
@@ -167,7 +166,6 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
     --partition                Partition size in bp for subsetting   ${params.partition}
     --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
-    --split_samples            Create individual sample vcfs         ${params.split_samples}
     --username                                                       ${"whoami".execute().in.text}
 
     Reference Genome
@@ -231,10 +229,6 @@ workflow {
         .splitCsv( strip: true )
         .map{ it: [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] }
 
-    premade_gvcf_ch = CREATE_BAM_SAMPLE_SHEET.out.gvcf
-        .splitCsv( strip: true )
-        .map{ it: [ [id: it[0]], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
-
     // Get contigs from bam file
     SAMTOOLS_GET_CONTIGS( sample_sheet_ch.splitCsv( strip: true )
         .first()
@@ -271,35 +265,42 @@ workflow {
     ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_GVCFS.out.versions)
 
     // Collect concatenated gVCFs
-    all_gvcfs_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
-        .concat(premade_gvcf_ch)
-        .map{ it: it[1] }
-        .collect()
-        .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf
-            .concat(premade_gvcf_ch)
-            .map{ it: it[2] }
-            .collect())
-        .collect()
-        .map{ it: [it] }
-
-    // Create gVCF sample map
-    sample_map_ch = bam_ch
-        .concat(premade_gvcf_ch)
-        .map{ it: "${it[0].id}\t${it[0].id}.g.vcf.gz" }
-        .collectFile(name: "sample_map.tsv", newLine: true)
-        .first()
+    new_gvcf_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
 
     if (params.gvcf_only == false){
         ///////////////////////////////////////////////////////
         // This section uses all gVCFs for joint genotyping  //
         ///////////////////////////////////////////////////////
 
+        // Create gVCF sample map
+        premade_gvcf_ch = CREATE_BAM_SAMPLE_SHEET.out.gvcf
+            .splitCsv( strip: true )
+            .map{ it: [ [id: it[0]], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
+
+        sample_map_ch = bam_ch
+            .map{ it: "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" }
+            .concat(premade_gvcf_ch
+                .map{ it: "${it[0].id}\tpremade_gvcfs/${it[0].id}.g.vcf.gz" })
+            .collectFile(name: "sample_map.tsv", newLine: true)
+            .first()
+
+        flat_new_gvcf_ch = new_gvcf_ch
+            .map{ it: it[1] }
+            .collect()
+            .concat(new_gvcf_ch
+                .map{ it: it[2] }
+                .collect())
+            .collect()
+            .map{ it: [it] }
+
         // Combine allgVCFs with partitions
-        all_gvcf_contig_ch = partitions_ch
-            .combine(all_gvcfs_ch)
+        // all_gvcf_contig_ch = partitions_ch
+        //     .combine(all_gvcfs_ch)
 
         // Create a genomics db for each contig
-        GATK_GENOMICSDBIMPORT( all_gvcf_contig_ch,
+        GATK_GENOMICSDBIMPORT( Channel.fromPath(gvcf_folder),
+                               flat_new_gvcf_ch,
+                               partitions_ch,
                                sample_map_ch )
         ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
@@ -396,15 +397,6 @@ workflow {
         ch_multiqc_json   = MULTIQC_REPORT.out.json
         ch_local_report   = LOCAL_REPORT.out.html
 
-        if (params.split_strains == true) {
-            // Create individual vcf files for each sample
-            BCFTOOLS_SPLIT_SAMPLES( sample_sheet_ch,
-                                    BCFTOOLS_CONCAT_HARD_VCFS.out.vcf )
-            ch_strain_vcf = BCFTOOLS_SPLIT_SAMPLES.out.vcf
-                .collect()
-        } else {
-            ch_strain_vcf = Channel.empty()
-        }
     } else {
         ch_soft_vcf       = Channel.empty()
         ch_hard_vcf       = Channel.empty()
@@ -428,7 +420,6 @@ workflow {
     ch_filter_stats               >> "variation"
     ch_soft_stats                 >> "variation"
     ch_hard_stats                 >> "variation"
-    ch_strain_vcf                 >> "variation/strain_vcf"
     ch_multiqc_report             >> "report"
     ch_multiqc_json               >> "report"
     ch_local_report               >> "report"
@@ -441,9 +432,6 @@ output {
         mode "copy"
     }
     "variation" {
-        mode "copy"
-    }
-    "variation/strain_vcf" {
         mode "copy"
     }
     "report" {
