@@ -13,6 +13,7 @@ RUN conda create -n gatk4 \
                         vcflib=1.0.0_rc3 \
                         multiqc=1.8 \
                         parallel=20200322 \
+                        bedtools \
     && conda clean -a
 ENV PATH /opt/conda/envs/gatk4/bin:$PATH
 # Use libhts.so from conda
