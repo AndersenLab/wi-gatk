@@ -2,9 +2,9 @@ process GATK_GENOTYPEGVCFS {
     tag "${meta.label}"
     label 'gatk_genotypegvcfs'
     errorStrategy 'retry'
-    cpus = { 8 * task.attempt }
-    time = { 72.hour }
-    memory = { 32.GB * task.attempt }
+    cpus = { 2 * task.attempt }
+    time = { 24.hour }
+    memory = { 62.GB * task.attempt }
 
     input:
     tuple val(meta), path(contig_db)

@@ -4,7 +4,7 @@ process LOCAL_HETPOLARIZATION {
     errorStrategy 'retry'
     time { 4.hour * task.attempt }
     cpus = { 1 * task.attempt }
-    memory = { 32.GB * task.attempt }
+    memory = { 31.GB * task.attempt }
 
     input:
     tuple val(meta), path(vcf)
@@ -19,16 +19,17 @@ process LOCAL_HETPOLARIZATION {
 
     script:
     def args = task.ext.args ?: ''
+    def threads = task.cpus > 1 ? "--threads=${task.cpus - 1}" : ""
     """
     if [ "${meta.contig}" == "${mito_name}" ]
     then
-        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} ${vcf} | \\
+        bcftools view -O v --min-af 0.000001 ${threads} ${vcf} | \\
         vcffixup - | \\
         bcftools view -O z - > ${meta.label}.vcf.gz
     else
         bcftools view -O z ${vcf} | \\
         het_polarization | \\
-        bcftools view -O v --min-af 0.000001 --threads=${task.cpus-1} | \\
+        bcftools view -O v --min-af 0.000001 ${threads} | \\
         vcffixup - | \\
         bcftools view -O z - > ${meta.label}.vcf.gz
     fi

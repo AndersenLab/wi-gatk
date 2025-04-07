@@ -229,6 +229,10 @@ workflow {
         .splitCsv( strip: true )
         .map{ it: [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] }
 
+    premade_gvcf_ch = CREATE_BAM_SAMPLE_SHEET.out.gvcf
+        .splitCsv( strip: true )
+        .map{ it: [ [id: it[0]], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
+
     // Get contigs from bam file
     SAMTOOLS_GET_CONTIGS( sample_sheet_ch.splitCsv( strip: true )
         .first()
@@ -265,18 +269,22 @@ workflow {
     ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_GVCFS.out.versions)
 
     // Collect concatenated gVCFs
-    new_gvcf_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
+    all_gvcfs_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
+        .concat(premade_gvcf_ch)
+        .map{ it: it[1] }
+        .collect()
+        .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf
+            .concat(premade_gvcf_ch)
+            .map{ it: it[2] }
+            .collect())
+        .collect()
+        .map{ it: [it] }
 
     if (params.gvcf_only == false){
         ///////////////////////////////////////////////////////
         // This section uses all gVCFs for joint genotyping  //
         ///////////////////////////////////////////////////////
-
-        // Create gVCF sample map
-        premade_gvcf_ch = CREATE_BAM_SAMPLE_SHEET.out.gvcf
-            .splitCsv( strip: true )
-            .map{ it: [ [id: it[0]], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
-
+        
         sample_map_ch = bam_ch
             .map{ it: "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" }
             .concat(premade_gvcf_ch
@@ -284,24 +292,28 @@ workflow {
             .collectFile(name: "sample_map.tsv", newLine: true)
             .first()
 
+        new_gvcf_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
         flat_new_gvcf_ch = new_gvcf_ch
             .map{ it: it[1] }
             .collect()
             .concat(new_gvcf_ch
                 .map{ it: it[2] }
                 .collect())
-            .collect()
-            .map{ it: [it] }
+            .collect(sort: true)
 
         // Combine allgVCFs with partitions
-        // all_gvcf_contig_ch = partitions_ch
-        //     .combine(all_gvcfs_ch)
+        all_gvcf_contig_ch = flat_new_gvcf_ch
+            .map{ it: [it] }
+            .combine(partitions_ch)
+
+        new_gvcf_list_ch = all_gvcf_contig_ch.map{ it: it[0]}
+        partition_list_ch = all_gvcf_contig_ch.map{ it: it[1]}
 
         // Create a genomics db for each contig
-        GATK_GENOMICSDBIMPORT( Channel.fromPath(gvcf_folder),
-                               flat_new_gvcf_ch,
-                               partitions_ch,
-                               sample_map_ch )
+        GATK_GENOMICSDBIMPORT( Channel.fromPath(gvcf_folder).first(),
+                               new_gvcf_list_ch,
+                               sample_map_ch,
+                               partition_list_ch )
         ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
         // Genotype cohort contig db
@@ -350,13 +362,11 @@ workflow {
             .map{ it: it[1] }
             .toSortedList()
             .map{ it: [[id: "soft"], it] }
-            .view()
 
         hard_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_HARD.out.vcf
             .map{ it: it[1] }
             .toSortedList()
             .map{ it: [[id: "hard"], it] }
-            .view()
 
         // Combine contigs for soft-filtered variant calls
         BCFTOOLS_CONCAT_SOFT_VCFS( soft_vcf_ch,

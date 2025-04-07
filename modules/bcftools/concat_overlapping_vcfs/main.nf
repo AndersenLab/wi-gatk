@@ -2,7 +2,7 @@ process BCFTOOLS_CONCAT_OVERLAPPING_VCFS {
     tag "${meta.contig} ${meta.id}"
     label 'bcftools_concat_vcfs'
     errorStrategy 'retry'
-    time { 4.hour * task.attempt }
+    time { 3.hour * task.attempt }
     cpus = { 2 * task.attempt }
     memory = { 8.GB * task.attempt }
 
