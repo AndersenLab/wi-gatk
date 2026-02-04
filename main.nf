@@ -269,26 +269,46 @@ workflow {
     ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_GVCFS.out.versions)
 
     // Collect concatenated gVCFs
-    all_gvcfs_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
-        .concat(premade_gvcf_ch)
+    // all_gvcfs_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
+    //     .concat(premade_gvcf_ch)
+    //     .map{ it: it[1] }
+    //     .collect()
+    //     .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf
+    //         .concat(premade_gvcf_ch)
+    //         .map{ it: it[2] }
+    //         .collect())
+    //     .collect()
+    //     .map{ it: [it] }
+    //     .view()
+
+    all_gvcfs_ch = premade_gvcf_ch
+        .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf)
         .map{ it: it[1] }
         .collect()
-        .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf
-            .concat(premade_gvcf_ch)
+        .concat(premade_gvcf_ch
+            .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf)
             .map{ it: it[2] }
             .collect())
         .collect()
         .map{ it: [it] }
+        .view()
 
     if (params.gvcf_only == false){
         ///////////////////////////////////////////////////////
         // This section uses all gVCFs for joint genotyping  //
         ///////////////////////////////////////////////////////
         
-        sample_map_ch = bam_ch
-            .map{ it: "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" }
-            .concat(premade_gvcf_ch
-                .map{ it: "${it[0].id}\tpremade_gvcfs/${it[0].id}.g.vcf.gz" })
+        // sample_map_ch = bam_ch
+        //     .map{ it: "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" }
+        //     .concat(premade_gvcf_ch
+        //         .map{ it: "${it[0].id}\tpremade_gvcfs/${it[0].id}.g.vcf.gz" })
+        //     .collectFile(name: "sample_map.tsv", newLine: true)
+        //     .first()
+
+        sample_map_ch = premade_gvcf_ch
+            .map{ it: "${it[0].id}\tpremade_gvcfs/${it[0].id}.g.vcf.gz" }
+            .combine( bam_ch
+                .map{ it: "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" } )
             .collectFile(name: "sample_map.tsv", newLine: true)
             .first()
 
@@ -300,10 +320,13 @@ workflow {
                 .map{ it: it[2] }
                 .collect())
             .collect(sort: true)
+            .view()
 
         // Combine allgVCFs with partitions
-        all_gvcf_contig_ch = flat_new_gvcf_ch
-            .map{ it: [it] }
+        // all_gvcf_contig_ch = flat_new_gvcf_ch
+        //     .map{ it: [it] }
+        //     .combine(partitions_ch)
+        all_gvcf_contig_ch = all_gvcfs_ch
             .combine(partitions_ch)
 
         new_gvcf_list_ch = all_gvcf_contig_ch.map{ it: it[0]}
