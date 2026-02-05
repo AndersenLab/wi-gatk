@@ -227,11 +227,18 @@ workflow {
     // Create channel of bams and indices
     bam_ch = CREATE_BAM_SAMPLE_SHEET.out.bam
         .splitCsv( strip: true )
-        .map{ it: [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] }
+        .map{ it: [ [id: it[0], processing: "bam"], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] }
 
     premade_gvcf_ch = CREATE_BAM_SAMPLE_SHEET.out.gvcf
         .splitCsv( strip: true )
-        .map{ it: [ [id: it[0]], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
+        .map{ it: [ [id: it[0], processing: "gvcf"], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
+
+    sample_ch = bam_ch
+        .mix (premade_gvcf_ch)
+        .branch { row ->
+            bam: row[0].processing == "bam"
+            gvcf: true
+        }
 
     // Get contigs from bam file
     SAMTOOLS_GET_CONTIGS( sample_sheet_ch.splitCsv( strip: true )
@@ -248,7 +255,7 @@ workflow {
     ///////////////////////////////////////////////////////
 
     // Create sample by contig channel
-    bam_contig_ch = bam_ch
+    bam_contig_ch = sample_ch.bam
         .combine(SAMTOOLS_GET_CONTIGS.out.contigs.splitCsv( strip: true ))
         .map{ it: [[id: it[0].id, contig: it[3]], it[1], it[2]] }
 
@@ -268,75 +275,33 @@ workflow {
                            SAMTOOLS_GET_CONTIGS.out.contigs )
     ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_GVCFS.out.versions)
 
-    // Collect concatenated gVCFs
-    // all_gvcfs_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
-    //     .concat(premade_gvcf_ch)
-    //     .map{ it: it[1] }
-    //     .collect()
-    //     .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf
-    //         .concat(premade_gvcf_ch)
-    //         .map{ it: it[2] }
-    //         .collect())
-    //     .collect()
-    //     .map{ it: [it] }
-    //     .view()
-
-    all_gvcfs_ch = premade_gvcf_ch
-        .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf)
-        .map{ it: it[1] }
-        .collect()
-        .concat(premade_gvcf_ch
-            .concat(BCFTOOLS_CONCAT_GVCFS.out.vcf)
-            .map{ it: it[2] }
-            .collect())
-        .collect()
-        .map{ it: [it] }
-        .view()
+    // Collect concatenated gVCFs - because we might have an empty list, we need to use concat to force this to work
+    new_gvcf_ch = channel.of ( [] )
+        .concat(
+            BCFTOOLS_CONCAT_GVCFS.out.vcf
+            .map { row -> [row[1], row[2]] }
+            .collect()
+        )
+        .last()
 
     if (params.gvcf_only == false){
+
         ///////////////////////////////////////////////////////
         // This section uses all gVCFs for joint genotyping  //
         ///////////////////////////////////////////////////////
         
-        // sample_map_ch = bam_ch
-        //     .map{ it: "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" }
-        //     .concat(premade_gvcf_ch
-        //         .map{ it: "${it[0].id}\tpremade_gvcfs/${it[0].id}.g.vcf.gz" })
-        //     .collectFile(name: "sample_map.tsv", newLine: true)
-        //     .first()
-
-        sample_map_ch = premade_gvcf_ch
+        sample_map_ch = sample_ch.gvcf
             .map{ it: "${it[0].id}\tpremade_gvcfs/${it[0].id}.g.vcf.gz" }
-            .combine( bam_ch
+            .concat( sample_ch.bam
                 .map{ it: "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" } )
             .collectFile(name: "sample_map.tsv", newLine: true)
             .first()
 
-        new_gvcf_ch = BCFTOOLS_CONCAT_GVCFS.out.vcf
-        flat_new_gvcf_ch = new_gvcf_ch
-            .map{ it: it[1] }
-            .collect()
-            .concat(new_gvcf_ch
-                .map{ it: it[2] }
-                .collect())
-            .collect(sort: true)
-            .view()
-
-        // Combine allgVCFs with partitions
-        // all_gvcf_contig_ch = flat_new_gvcf_ch
-        //     .map{ it: [it] }
-        //     .combine(partitions_ch)
-        all_gvcf_contig_ch = all_gvcfs_ch
-            .combine(partitions_ch)
-
-        new_gvcf_list_ch = all_gvcf_contig_ch.map{ it: it[0]}
-        partition_list_ch = all_gvcf_contig_ch.map{ it: it[1]}
-
         // Create a genomics db for each contig
         GATK_GENOMICSDBIMPORT( Channel.fromPath(gvcf_folder).first(),
-                               new_gvcf_list_ch,
+                               new_gvcf_ch,
                                sample_map_ch,
-                               partition_list_ch )
+                               partitions_ch )
         ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
         // Genotype cohort contig db
