@@ -271,8 +271,8 @@ workflow {
 
     // Call variants in each sample/contig
     GATK_HAPLOTYPECALLER( bam_contig_ch,
-                          reference_ch,
-                          params.all_sites )
+                          reference_ch
+                        )
     ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
 
     // Group contig variant calls by sample
@@ -312,12 +312,14 @@ workflow {
         GATK_GENOMICSDBIMPORT( Channel.fromPath(gvcf_folder).first(),
                                new_gvcf_ch,
                                sample_map_ch,
-                               partitions_ch )
+                               partitions_ch
+                             )
         ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
         // Genotype cohort contig db
         GATK_GENOTYPEGVCFS( GATK_GENOMICSDBIMPORT.out.db,
-                            reference_ch )
+                            reference_ch,
+                            params.all_sites )
         ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
 
         // Concatenate VCFs by contig and perform het polarization
