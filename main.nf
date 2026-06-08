@@ -168,6 +168,7 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
     --all_sites                Include all invariant sites           ${params.all_sites}
     --partition                Partition size in bp for subsetting   ${params.partition}
+    --partition_file           File containing partition coordinates ${params.partition_file}
     --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
     --username                                                       ${"whoami".execute().in.text}
 
@@ -250,8 +251,14 @@ workflow {
         params.partition )
     ch_versions = ch_versions.mix(SAMTOOLS_GET_CONTIGS.out.versions)
 
-    partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
-        .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
+    if (params.partition_file == null) {
+        partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
+            .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
+    } else {
+        partitions_ch = Channel.fromPath(params.partition_file, checkIfExists: true)
+            .splitCsv( strip: true, sep: "\t" )
+            .map{ it: [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: (it[2].toInteger() - it[1].toInteger())] }
+    }
 
     ///////////////////////////////////////////////////////
     // This section is for samples missing premade gVCFs //
