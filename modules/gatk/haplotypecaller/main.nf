@@ -4,8 +4,8 @@ process GATK_HAPLOTYPECALLER {
     //errorStrategy { task.exitStatus in 137..143 ? 'retry' : 'terminate' }
     errorStrategy 'retry'
     time { 120.minute * task.attempt }
-    cpus = { 2 * task.attempt }
-    memory = { 4.GB * task.attempt - 1.GB }
+    cpus { 2 * task.attempt }
+    memory { 4.GB * task.attempt - 1.GB }
     input:
     tuple val(meta), path(bam), path(bam_index) 
     tuple val(meta2), path("ref.fa.gz"), path("ref.fa.gz.fai"), path("ref.dict"), path("ref.fa.gz.gzi")

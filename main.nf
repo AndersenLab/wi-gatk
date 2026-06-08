@@ -75,6 +75,8 @@ if (params.help == false & params.debug == false) {
             """
             exit 1
         }
+        bam_folder = "${params.bam_location}"
+        gvcf_folder = "${params.gvcf_location}"
     } else {
         if(params.bam_location != null) {
             bam_folder = "${params.bam_location}"
@@ -164,6 +166,7 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --bam_location             Directory of BAM files                ${bam_folder}
     --gvcf_location            Directory of gVCF files               ${gvcf_folder}
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
+    --all_sites                Include all invariant sites           ${params.all_sites}
     --partition                Partition size in bp for subsetting   ${params.partition}
     --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
     --username                                                       ${"whoami".execute().in.text}
@@ -261,7 +264,8 @@ workflow {
 
     // Call variants in each sample/contig
     GATK_HAPLOTYPECALLER( bam_contig_ch,
-                          reference_ch )
+                          reference_ch,
+                          params.all_sites )
     ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
 
     // Group contig variant calls by sample
@@ -324,7 +328,8 @@ workflow {
         LOCAL_FILTER( filter_ch,
                       GATK_SOFT_FILTER.out.vcf,
                       reference_ch,
-                      params.mito_name )
+                      params.mito_name,
+                      params.all_sites )
         ch_versions = ch_versions.mix(LOCAL_FILTER.out.versions)
 
         // Collect cohort VCFs by contig for concatenation

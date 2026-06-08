@@ -3,8 +3,8 @@ process LOCAL_HETPOLARIZATION {
     label 'local_hetpolarization'
     errorStrategy 'retry'
     time { 4.hour * task.attempt }
-    cpus = { 1 * task.attempt }
-    memory = { 31.GB * task.attempt }
+    cpus { 1 * task.attempt }
+    memory { 31.GB * task.attempt }
 
     input:
     tuple val(meta), path(vcf)

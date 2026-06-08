@@ -3,8 +3,8 @@ process BCFTOOLS_CONCAT_VCFS {
     label 'bcftools_concat_vcfs'
     errorStrategy 'retry'
     time { 24.hour * task.attempt }
-    cpus = { 2 * task.attempt }
-    memory = { 8.GB * task.attempt }
+    cpus { 2 * task.attempt }
+    memory { 8.GB * task.attempt }
 
     input:
     tuple val(meta), path(vcfs)
