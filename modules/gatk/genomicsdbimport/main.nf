@@ -2,6 +2,10 @@ process GATK_GENOMICSDBIMPORT {
     tag "${meta.label}"
     label 'gatk_genomicsdbimport'
 
+    cpus { 5 * task.attempt }
+    time { 16.hour }
+    memory { 20.GB * task.attempt }
+
     input:
     // tuple val(meta), path(vcfs)
     // path sample_map

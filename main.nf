@@ -90,6 +90,7 @@ if (params.help == false & params.debug == false) {
         }
     }
 } else if (params.debug == false) {
+    species = params.species
     if(params.bam_location != null) {
         bam_folder = "${params.bam_location}"
     } else if (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis"){
@@ -254,10 +255,12 @@ workflow {
     if (params.partition_file == null) {
         partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
             .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
+        partitions_file_ch = SAMTOOLS_GET_CONTIGS.out.partitions.first()
     } else {
         partitions_ch = Channel.fromPath(params.partition_file, checkIfExists: true)
             .splitCsv( strip: true, sep: "\t" )
             .map{ it: [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: (it[2].toInteger() - it[1].toInteger())] }
+        partitions_file_ch = Channel.fromPath(params.partition_file, checkIfExists: true).first()
     }
 
     ///////////////////////////////////////////////////////
@@ -354,10 +357,10 @@ workflow {
 
         // Concat partitioned filtered vcfs
         BCFTOOLS_CONCAT_OVERLAPPING_SOFT( soft_cohort_contig_ch,
-                                          SAMTOOLS_GET_CONTIGS.out.partitions )
+                                          partitions_file_ch )
 
         BCFTOOLS_CONCAT_OVERLAPPING_HARD( hard_cohort_contig_ch,
-                                          SAMTOOLS_GET_CONTIGS.out.partitions )
+                                          partitions_file_ch )
 
         // Collect genotyped concatenated contigs together
         soft_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_SOFT.out.vcf
