@@ -77,6 +77,11 @@ if (params.help == false & params.debug == false) {
         }
         bam_folder = "${params.bam_location}"
         gvcf_folder = "${params.gvcf_location}"
+        if (params.partition_file != null) {
+            partition_file = params.partition_file
+        } else {
+            partition_file = null
+        }
     } else {
         if(params.bam_location != null) {
             bam_folder = "${params.bam_location}"
@@ -87,6 +92,11 @@ if (params.help == false & params.debug == false) {
             gvcf_folder = "${params.gvcf_location}"
         } else {
             gvcf_folder = "${params.data_path}/${species}/WI/gVCFs/"
+        }
+        if (params.partition_file != null) {
+            partition_file = params.partition_file
+        } else {
+            partition_file = "${projectDir}/data/${species}_intervals.bed"
         }
     }
 } else if (params.debug == false) {
@@ -169,7 +179,7 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
     --all_sites                Include all invariant sites           ${params.all_sites}
     --partition                Partition size in bp for subsetting   ${params.partition}
-    --partition_file           File containing partition coordinates ${params.partition_file}
+    --partition_file           File containing partition coordinates ${partition_file}
     --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
     --username                                                       ${"whoami".execute().in.text}
 
@@ -252,15 +262,15 @@ workflow {
         params.partition )
     ch_versions = ch_versions.mix(SAMTOOLS_GET_CONTIGS.out.versions)
 
-    if (params.partition_file == null) {
+    if (partition_file == null) {
         partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
             .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
         partitions_file_ch = SAMTOOLS_GET_CONTIGS.out.partitions.first()
     } else {
-        partitions_ch = Channel.fromPath(params.partition_file, checkIfExists: true)
+        partitions_ch = Channel.fromPath(partition_file, checkIfExists: true)
             .splitCsv( strip: true, sep: "\t" )
             .map{ it: [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: (it[2].toInteger() - it[1].toInteger())] }
-        partitions_file_ch = Channel.fromPath(params.partition_file, checkIfExists: true).first()
+        partitions_file_ch = Channel.fromPath(partition_file, checkIfExists: true).first()
     }
 
     ///////////////////////////////////////////////////////
