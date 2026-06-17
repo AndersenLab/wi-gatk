@@ -2,13 +2,14 @@ process GATK_GENOTYPEGVCFS {
     tag "${meta.label}"
     label 'gatk_genotypegvcfs'
     errorStrategy 'retry'
-    cpus = { 2 * task.attempt }
-    time = { 24.hour }
-    memory = { 62.GB * task.attempt }
+    cpus { 2 * task.attempt }
+    time { 24.hour }
+    memory { 62.GB * task.attempt }
 
     input:
     tuple val(meta), path(contig_db)
     tuple val(meta2), path("ref.fa.gz"), path("ref.fa.gz.fai"), path("ref.dict"), path("ref.fa.gz.gzi")
+    val(all_sites)
 
     output:
     tuple val(meta), path("${meta.label}.vcf"), emit: vcf
@@ -20,6 +21,7 @@ process GATK_GENOTYPEGVCFS {
     script:
     def args = task.ext.args ?: ''
     def avail_mem = (task.memory.giga*0.9).intValue()
+    def all_sites_arg = all_sites ? '--all-sites' : ''
     """
     gatk  --java-options "-Xmx${avail_mem}g -XX:-UsePerfData" \\
         GenotypeGVCFs \\
@@ -29,6 +31,8 @@ process GATK_GENOTYPEGVCFS {
         -G AS_StandardAnnotation \\
         -G StandardHCAnnotation \\
         -L ${meta.interval} \\
+        ${all_sites_arg} \\
+        ${args} \\
         -O ${meta.label}.vcf
 
     cat <<-END_VERSIONS > versions.yml

@@ -90,6 +90,7 @@ if (params.help == false & params.debug == false) {
         }
     }
 } else if (params.debug == false) {
+    species = params.species
     if(params.bam_location != null) {
         bam_folder = "${params.bam_location}"
     } else if (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis"){
@@ -166,7 +167,9 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --bam_location             Directory of BAM files                ${bam_folder}
     --gvcf_location            Directory of gVCF files               ${gvcf_folder}
     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
+    --all_sites                Include all invariant sites           ${params.all_sites}
     --partition                Partition size in bp for subsetting   ${params.partition}
+    --partition_file           File containing partition coordinates ${params.partition_file}
     --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
     --username                                                       ${"whoami".execute().in.text}
 
@@ -249,8 +252,16 @@ workflow {
         params.partition )
     ch_versions = ch_versions.mix(SAMTOOLS_GET_CONTIGS.out.versions)
 
-    partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
-        .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
+    if (params.partition_file == null) {
+        partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
+            .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
+        partitions_file_ch = SAMTOOLS_GET_CONTIGS.out.partitions.first()
+    } else {
+        partitions_ch = Channel.fromPath(params.partition_file, checkIfExists: true)
+            .splitCsv( strip: true, sep: "\t" )
+            .map{ it: [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: (it[2].toInteger() - it[1].toInteger())] }
+        partitions_file_ch = Channel.fromPath(params.partition_file, checkIfExists: true).first()
+    }
 
     ///////////////////////////////////////////////////////
     // This section is for samples missing premade gVCFs //
@@ -263,7 +274,8 @@ workflow {
 
     // Call variants in each sample/contig
     GATK_HAPLOTYPECALLER( bam_contig_ch,
-                          reference_ch )
+                          reference_ch
+                        )
     ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
 
     // Group contig variant calls by sample
@@ -303,12 +315,14 @@ workflow {
         GATK_GENOMICSDBIMPORT( Channel.fromPath(gvcf_folder).first(),
                                new_gvcf_ch,
                                sample_map_ch,
-                               partitions_ch )
+                               partitions_ch
+                             )
         ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
         // Genotype cohort contig db
         GATK_GENOTYPEGVCFS( GATK_GENOMICSDBIMPORT.out.db,
-                            reference_ch )
+                            reference_ch,
+                            params.all_sites )
         ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
 
         // Concatenate VCFs by contig and perform het polarization
@@ -326,7 +340,8 @@ workflow {
         LOCAL_FILTER( filter_ch,
                       GATK_SOFT_FILTER.out.vcf,
                       reference_ch,
-                      params.mito_name )
+                      params.mito_name,
+                      params.all_sites )
         ch_versions = ch_versions.mix(LOCAL_FILTER.out.versions)
 
         // Collect cohort VCFs by contig for concatenation
@@ -342,10 +357,10 @@ workflow {
 
         // Concat partitioned filtered vcfs
         BCFTOOLS_CONCAT_OVERLAPPING_SOFT( soft_cohort_contig_ch,
-                                          SAMTOOLS_GET_CONTIGS.out.partitions )
+                                          partitions_file_ch )
 
         BCFTOOLS_CONCAT_OVERLAPPING_HARD( hard_cohort_contig_ch,
-                                          SAMTOOLS_GET_CONTIGS.out.partitions )
+                                          partitions_file_ch )
 
         // Collect genotyped concatenated contigs together
         soft_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_SOFT.out.vcf

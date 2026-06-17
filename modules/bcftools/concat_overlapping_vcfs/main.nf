@@ -3,8 +3,8 @@ process BCFTOOLS_CONCAT_OVERLAPPING_VCFS {
     label 'bcftools_concat_vcfs'
     errorStrategy 'retry'
     time { 3.hour * task.attempt }
-    cpus = { 2 * task.attempt }
-    memory = { 8.GB * task.attempt }
+    cpus { 2 * task.attempt }
+    memory { 8.GB * task.attempt }
 
     input:
     tuple val(meta), path(vcfs), path(indices)
@@ -21,7 +21,7 @@ process BCFTOOLS_CONCAT_OVERLAPPING_VCFS {
     def args = task.ext.args ?: ''
     """
     grep -w ${meta.contig} ${partitions} | \\
-        awk '{ printf "%s_%i_%i.${meta.id}.vcf.gz\\n", \$1, \$3, \$4 }' > partition_set.tsv
+        awk '{ printf "%s_%i_%i.${meta.id}.vcf.gz\\n", \$1, \$2, \$3 }' > partition_set.tsv
     bcftools concat -a -d all -O z --file-list partition_set.tsv > ${meta.contig}.${meta.id}.vcf.gz
     bcftools index --tbi ${meta.contig}.${meta.id}.vcf.gz
         

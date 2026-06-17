@@ -4,8 +4,8 @@ process BCFTOOLS_SPLIT_SAMPLES {
     label 'bcftools_split_samples'
     errorStrategy 'retry'
     time { 1.hour * task.attempt }
-    cpus = { 1 * task.attempt }
-    memory = { 4.GB * task.attempt }
+    cpus { 1 * task.attempt }
+    memory { 4.GB * task.attempt }
 
     input:
     val sample

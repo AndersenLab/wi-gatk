@@ -2,8 +2,8 @@ process BCFTOOLS_COMPRESS {
     label 'bcftools_compress'
     errorStrategy 'retry'
     time { 20.minute * task.attempt }
-    cpus = { 1 * task.attempt }
-    memory = { 4.GB * task.attempt }
+    cpus { 1 * task.attempt }
+    memory { 4.GB * task.attempt }
 
     input:
     tuple val(meta), path(vcf)

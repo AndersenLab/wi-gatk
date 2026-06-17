@@ -42,11 +42,11 @@ process SAMTOOLS_GET_CONTIGS {
         for J in \$(seq 1 1 \$(expr \${N} - 1 )); do
             END=\$(expr \${START} + \${STEP} )
             END2=\$(expr \${END} + 300 )
-            echo -e "\${CHROMS[\${I}]}\\t\${SIZES[\${I}]}\\t\${START}\\t\${END2}" >> contig_partitions.tsv
+            echo -e "\${CHROMS[\${I}]}\\t\${START}\\t\${END2}" >> contig_partitions.tsv
             START=\${END}
         done
         END=\${SIZES[\${I}]}
-        echo -e "\${CHROMS[\${I}]}\\t\${SIZES[\${I}]}\\t\${START}\\t\${END}" >> contig_partitions.tsv
+        echo -e "\${CHROMS[\${I}]}\\t\${START}\\t\${END}" >> contig_partitions.tsv
     done
 
     cat <<-END_VERSIONS > versions.yml

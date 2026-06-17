@@ -3,8 +3,8 @@ process GATK_SOFT_FILTER {
     label 'gatk_soft_filter'
     errorStrategy 'retry'
     time { 2.hour * task.attempt }
-    cpus = { 2 * task.attempt }
-    memory = { 8.GB * task.attempt }
+    cpus { 2 * task.attempt }
+    memory { 8.GB * task.attempt }
 
     input:
     val filter_params
