@@ -75,6 +75,8 @@ if (params.help == false & params.debug == false) {
             """
             exit 1
         }
+        bam_folder = "${params.bam_location}"
+        gvcf_folder = "${params.gvcf_location}"
     } else {
         if(params.bam_location != null) {
             bam_folder = "${params.bam_location}"
