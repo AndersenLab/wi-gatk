@@ -25,6 +25,7 @@ process LOCAL_FILTER {
     def args = task.ext.args ?: ''
     def avail_mem = (task.memory.giga*0.9).intValue()
     def all_sites_arg = all_sites ? '' : '--min-af 0.000001 --max-af 0.999999'
+    def min_alleles_arg = all_sites ? '-m1' : '-m2'
     """
     bcftools view -O z ${vcf} > out.vcf.gz
     bcftools index --tbi out.vcf.gz
@@ -36,14 +37,14 @@ process LOCAL_FILTER {
     # Create hard-filtered version by removing marked genotypes/variants
     if [ ${meta.contig} == "${mito_name}" ]
     then
-        bcftools view -m2 -M2 --trim-alt-alleles -O u ${meta.label}.soft.vcf.gz | \\
+        bcftools view ${min_alleles_arg} -M2 --trim-alt-alleles -O u ${meta.label}.soft.vcf.gz | \\
         bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth"' | \\
         bcftools filter -O u --exclude 'FILTER != "PASS"' | \\
         bcftools view -O v ${all_sites_arg} | \\
         vcffixup - | \\
         bcftools view -O z --trim-alt-alleles > ${meta.label}.hard.vcf.gz
     else
-        bcftools view -m2 -M2 --trim-alt-alleles -O u ${meta.label}.soft.vcf.gz | \\
+        bcftools view ${min_alleles_arg} -M2 --trim-alt-alleles -O u ${meta.label}.soft.vcf.gz | \\
         bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth" | FORMAT/FT ~"is_het"' | \\
         bcftools filter -O u --exclude 'FILTER != "PASS"' | \\
         bcftools view -O v ${all_sites_arg} | \\
