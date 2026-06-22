@@ -9,6 +9,7 @@ process LOCAL_HETPOLARIZATION {
     input:
     tuple val(meta), path(vcf)
     val mito_name
+    val all_sites
 
     output:
     tuple val(meta), path("${meta.label}.vcf.gz"), path("${meta.label}.vcf.gz.tbi"), emit: vcf
@@ -20,16 +21,17 @@ process LOCAL_HETPOLARIZATION {
     script:
     def args = task.ext.args ?: ''
     def threads = task.cpus > 1 ? "--threads=${task.cpus - 1}" : ""
+    def all_sites_arg = all_sites ? '' : '--min-af 0.000001'
     """
     if [ "${meta.contig}" == "${mito_name}" ]
     then
-        bcftools view -O v --min-af 0.000001 ${threads} ${vcf} | \\
+        bcftools view -O v ${all_sites_arg} ${threads} ${vcf} | \\
         vcffixup - | \\
         bcftools view -O z - > ${meta.label}.vcf.gz
     else
         bcftools view -O z ${vcf} | \\
         het_polarization | \\
-        bcftools view -O v --min-af 0.000001 ${threads} | \\
+        bcftools view -O v ${all_sites_arg} ${threads} | \\
         vcffixup - | \\
         bcftools view -O z - > ${meta.label}.vcf.gz
     fi

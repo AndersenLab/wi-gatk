@@ -337,7 +337,8 @@ workflow {
 
         // Concatenate VCFs by contig and perform het polarization
         LOCAL_HETPOLARIZATION( GATK_GENOTYPEGVCFS.out.vcf,
-                               params.mito_name )
+                               params.mito_name,
+                               params.all_sites )
         ch_versions = ch_versions.mix(LOCAL_HETPOLARIZATION.out.versions)
 
         // Mark filtered genotypes/variants with GATK
