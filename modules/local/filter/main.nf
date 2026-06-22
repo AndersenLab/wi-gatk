@@ -54,7 +54,7 @@ process LOCAL_FILTER {
     fi
 
     if [[ ${all_sites} == "true" ]]; then
-        bcftools annotate -x INFO,^FORMAT/GT -O z ${vcf} > ${meta.label}.allsites.vcf.gz
+        bcftools annotate -x INFO,^FORMAT/GT -O z ${meta.label}.hard.vcf.gz > ${meta.label}.allsites.vcf.gz
         bcftools index --tbi ${meta.label}.allsites.vcf.gz
         rm ${meta.label}.soft.vcf.gz
         rm ${meta.label}.hard.vcf.gz
