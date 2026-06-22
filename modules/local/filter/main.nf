@@ -14,8 +14,9 @@ process LOCAL_FILTER {
     val all_sites
 
     output:
-    tuple val(meta), path("${meta.label}.soft.vcf.gz"), path("${meta.label}.soft.vcf.gz.tbi"), emit: soft
-    tuple val(meta), path("${meta.label}.hard.vcf.gz"), path("${meta.label}.hard.vcf.gz.tbi"), emit: hard
+    tuple val(meta), path("${meta.label}.soft.vcf.gz"), path("${meta.label}.soft.vcf.gz.tbi"), emit: soft, optional: true
+    tuple val(meta), path("${meta.label}.hard.vcf.gz"), path("${meta.label}.hard.vcf.gz.tbi"), emit: hard, optional: true
+    tuple val(meta), path("${meta.label}.allsites.vcf.gz"), path("${meta.label}.allsites.vcf.gz.tbi"), emit: allsites, optional: true
     path  "versions.yml",                                                                      emit: versions
     
     when:
@@ -51,8 +52,16 @@ process LOCAL_FILTER {
         vcffixup - | \\
         bcftools view -O z --trim-alt-alleles > ${meta.label}.hard.vcf.gz
     fi
-    bcftools index --tbi ${meta.label}.soft.vcf.gz
-    bcftools index --tbi ${meta.label}.hard.vcf.gz
+
+    if [[ ${all_sites} == "true" ]]; then
+        bcftools annotate -x INFO,^FORMAT/GT -O z ${vcf} > ${meta.label}.allsites.vcf.gz
+        bcftools index --tbi ${meta.label}.allsites.vcf.gz
+        rm ${meta.label}.soft.vcf.gz
+        rm ${meta.label}.hard.vcf.gz
+    else
+        bcftools index --tbi ${meta.label}.soft.vcf.gz
+        bcftools index --tbi ${meta.label}.hard.vcf.gz
+    fi
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -62,8 +71,15 @@ process LOCAL_FILTER {
 
     stub:
     """
-    touch ${meta.label}.soft.vcf
-    touch ${meta.label}.hard.vcf
+    if [[ ${all_sites} == "true" ]]; then
+        touch ${meta.label}.allsites.vcf.gz
+        touch ${meta.label}.allsites.vcf.gz.tbi
+    else
+        touch ${meta.label}.soft.vcf.gz
+        touch ${meta.label}.soft.vcf.gz.tbi
+        touch ${meta.label}.hard.vcf.gz
+        touch ${meta.label}.hard.vcf.gz.tbi
+    fi
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
