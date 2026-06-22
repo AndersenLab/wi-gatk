@@ -358,7 +358,7 @@ workflow {
         ch_versions = ch_versions.mix(LOCAL_FILTER.out.versions)
 
         // Concat partitioned filtered vcfs
-        if (param.all_sites) {
+        if (params.all_sites) {
             // Collect cohort VCFs by contig for concatenation
             all_cohort_contig_ch = LOCAL_FILTER.out.allsites
                 .map{ it: [it[0].contig, it[1], it[2]] } 
