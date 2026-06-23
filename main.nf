@@ -266,7 +266,7 @@ workflow {
 
     if (partition_file == null) {
         partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
-            .map{ it: [interval: "${it[0]}:${it[2]}-${it[3]}", label:  "${it[0]}_${it[2]}_${it[3]}", contig: it[0], start: it[2], end: it[3], size: it[1]] }
+            .map{ it: [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: it[1]] }
         partitions_file_ch = SAMTOOLS_GET_CONTIGS.out.partitions.first()
     } else {
         partitions_ch = Channel.fromPath(partition_file, checkIfExists: true)
