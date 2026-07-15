@@ -11,17 +11,15 @@
 include { CREATE_BAM_SAMPLE_SHEET                           } from "./modules/sample_sheet/create_bam_sample_sheet/main"
 include { SAMTOOLS_GET_CONTIGS                              } from "./modules/samtools/get_contigs/main"
 include { GATK_HAPLOTYPECALLER                              } from "./modules/gatk/haplotypecaller/main"
+include { BCFTOOLS_JOINSORT                                 } from "./modules/bcftools/joinsort/main"
 include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_GVCFS     } from "./modules/bcftools/concat_vcfs/main"
-include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_SOFT_VCFS } from "./modules/bcftools/concat_vcfs/main"
-include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_HARD_VCFS } from "./modules/bcftools/concat_vcfs/main"
-include { BCFTOOLS_CONCAT_VCFS as BCFTOOLS_CONCAT_ALL_VCFS  } from "./modules/bcftools/concat_vcfs/main"
-include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_SOFT } from "./modules/bcftools/concat_overlapping_vcfs/main"
-include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_HARD } from "./modules/bcftools/concat_overlapping_vcfs/main"
-include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS as BCFTOOLS_CONCAT_OVERLAPPING_ALL  } from "./modules/bcftools/concat_overlapping_vcfs/main"
+include { BCFTOOLS_CONCAT_VCFS                              } from "./modules/bcftools/concat_vcfs/main"
+include { BCFTOOLS_CONCAT_OVERLAPPING_VCFS                  } from "./modules/bcftools/concat_overlapping_vcfs/main"
 include { GATK_GENOMICSDBIMPORT                             } from "./modules/gatk/genomicsdbimport/main"
 include { GATK_GENOTYPEGVCFS                                } from "./modules/gatk/genotypegvcfs/main"
 include { LOCAL_HETPOLARIZATION                             } from "./modules/local/hetpolarization/main"
 include { GATK_SOFT_FILTER                                  } from "./modules/gatk/soft_filter/main"
+include { GTCHECK                                           } from "./modules/bcftools/gtcheck/main"
 include { LOCAL_FILTER                                      } from "./modules/local/filter/main"
 include { LOCAL_VCF_STATS                                   } from "./modules/local/vcf_stats/main"
 include { MULTIQC_REPORT                                    } from "./modules/multiqc/report/main"
@@ -29,129 +27,6 @@ include { LOCAL_REPORT                                      } from "./modules/lo
 
 // Needed to publish results
 nextflow.preview.output = true
-
-date = new Date().format( 'yyyyMMdd' )
-
-// Debug
-if (params.debug) {
-    species = "c_elegans"
-    params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.txt"
-    bam_folder = "${workflow.projectDir}/test_data/bams"
-    gvcf_folder = "${workflow.projectDir}/test_data/gVCFs"
-}
-
-if (params.help == false & params.debug == false) {
-    if (params.species == null) {
-        println """
-        Please specify a species with option --species
-        """
-        exit 1
-    } else {
-        species = params.species
-    }
-    if (params.sample_sheet == null) {
-        println """
-        Please specify a sample sheet with option --sample_sheet
-        """
-        exit 1
-    }
-    if (species != "c_elegans" & species != "c_briggsae" & species != "c_tropicalis"){
-        if (params.reference == null) {
-            println """
-            When using a species other than C. elegans, C. briggsae, or C. tropicalis,
-            a reference genome must be specified with option --reference
-            """
-            exit 1
-        }
-        if (params.bam_location == null) {
-            println """
-            When using a species other than C. elegans, C. briggsae, or C. tropicalis,
-            a BAM directory must be specified with option --bam_location
-            """
-            exit 1
-        }
-        if (params.gvcf_location == null) {
-            println """
-            When using a species other than C. elegans, C. briggsae, or C. tropicalis,
-            a gVCF directory must be specified with option --gvcf_location
-            """
-            exit 1
-        }
-        bam_folder = "${params.bam_location}"
-        gvcf_folder = "${params.gvcf_location}"
-        if (params.partition_file != null) {
-            partition_file = params.partition_file
-        } else {
-            partition_file = null
-        }
-    } else {
-        if(params.bam_location != null) {
-            bam_folder = "${params.bam_location}"
-        } else {
-            bam_folder = "${params.data_path}/${species}/WI/alignments/"
-        }
-        if(params.gvcf_location != null) {
-            gvcf_folder = "${params.gvcf_location}"
-        } else {
-            gvcf_folder = "${params.data_path}/${species}/WI/gVCFs/"
-        }
-        if (params.partition_file != null) {
-            partition_file = params.partition_file
-        } else {
-            partition_file = "${projectDir}/data/${species}_intervals.bed"
-        }
-    }
-} else if (params.debug == false) {
-    species = params.species
-    if(params.bam_location != null) {
-        bam_folder = "${params.bam_location}"
-    } else if (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis"){
-        bam_folder = "${params.data_path}/${species}/WI/alignments/"
-    }
-    if(params.gvcf_location != null) {
-        gvcf_folder = "${params.gvcf_location}"
-    } else if (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis"){
-        gvcf_folder = "${params.data_path}/${species}/WI/gVCFs/"
-    }
-}
-
-// set default project and ws build for species
-if(species == "c_elegans") {
-    params.project="PRJNA13758"
-    params.ws_build="WS283"
-} else if(species == "c_briggsae") {
-    params.project="QX1410_nanopore"
-    params.ws_build="Feb2020"
-} else if(species == "c_tropicalis") {
-    params.project="NIC58_nanopore"
-    params.ws_build="June2021"
-}
-
-// check reference
-if (params.reference == null){
-    if(params.data_path != null && (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis")) {
-        reference = "${params.data_path}/${species}/genomes/${params.project}/${params.ws_build}/${species}.${params.project}.${params.ws_build}.genome.fa.gz"
-    } else if (params.help) {
-        reference = null
-    } else { 
-        println """
-        Please specify c_elegans, c_brigssae, or c_tropicalis as the species with option --species
-        or a reference genome with --reference
-        """
-        exit 1
-    }
-} else {
-    reference = params.reference
-}
-
-if (reference != null){
-    ref_base = reference.take(reference.take(reference.lastIndexOf('.') - 1).lastIndexOf("."))
-    reference_fa = "${reference}"
-    reference_index = "${reference}.fai"
-    reference_dict = "${ref_base}.dict"
-    reference_gzi = "${reference}.gzi"
-}
-
 
 def log_summary() {
 
@@ -183,6 +58,7 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
     --partition                Partition size in bp for subsetting   ${params.partition}
     --partition_file           File containing partition coordinates ${partition_file}
     --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
+    --gtcheck                  Gtcheck strategy or strain VCF        ${params.gtcheck}
     --username                                                       ${"whoami".execute().in.text}
 
     Reference Genome
@@ -204,51 +80,197 @@ nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam
 out
 }
 
-log.info(log_summary())
-
-if (params.help == true) {
-    exit 1
-}
-
-now = new Date()
-timestamp = now.format("yyyyMMdd-HH-mm-ss")
-log.info("Started running ${now}")
 
 workflow {
     main:
-    ch_versions = Channel.empty()
+    date = new Date().format( 'yyyyMMdd' )
+
+    // Debug
+    if (params.debug) {
+        species = "c_elegans"
+        params.sample_sheet = "${workflow.projectDir}/test_data/sample_sheet.txt"
+        bam_folder = "${workflow.projectDir}/test_data/bams"
+        gvcf_folder = "${workflow.projectDir}/test_data/gVCFs"
+    }
+
+    if (params.help == false & params.debug == false) {
+        if (params.species == null) {
+            println """
+            Please specify a species with option --species
+            """
+            exit 1
+        } else {
+            species = params.species
+        }
+        if (params.sample_sheet == null) {
+            println """
+            Please specify a sample sheet with option --sample_sheet
+            """
+            exit 1
+        }
+        if (species != "c_elegans" & species != "c_briggsae" & species != "c_tropicalis"){
+            if (params.reference == null) {
+                println """
+                When using a species other than C. elegans, C. briggsae, or C. tropicalis,
+                a reference genome must be specified with option --reference
+                """
+                exit 1
+            }
+            if (params.bam_location == null) {
+                println """
+                When using a species other than C. elegans, C. briggsae, or C. tropicalis,
+                a BAM directory must be specified with option --bam_location
+                """
+                exit 1
+            }
+            if (params.gvcf_location == null) {
+                println """
+                When using a species other than C. elegans, C. briggsae, or C. tropicalis,
+                a gVCF directory must be specified with option --gvcf_location
+                """
+                exit 1
+            }
+            bam_folder = "${params.bam_location}"
+            gvcf_folder = "${params.gvcf_location}"
+            if (params.partition_file != null) {
+                partition_file = params.partition_file
+            } else {
+                partition_file = null
+            }
+        } else {
+            if(params.bam_location != null) {
+                bam_folder = "${params.bam_location}"
+            } else {
+                bam_folder = "${params.data_path}/${species}/WI/alignments/"
+            }
+            if(params.gvcf_location != null) {
+                gvcf_folder = "${params.gvcf_location}"
+            } else {
+                gvcf_folder = "${params.data_path}/${species}/WI/gVCFs/"
+            }
+            if (params.partition_file != null) {
+                partition_file = params.partition_file
+            } else {
+                partition_file = "${projectDir}/data/${species}_intervals.bed"
+            }
+        }
+    } else if (params.debug == false) {
+        species = params.species
+        if(params.bam_location != null) {
+            bam_folder = "${params.bam_location}"
+        } else if (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis"){
+            bam_folder = "${params.data_path}/${species}/WI/alignments/"
+        }
+        if(params.gvcf_location != null) {
+            gvcf_folder = "${params.gvcf_location}"
+        } else if (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis"){
+            gvcf_folder = "${params.data_path}/${species}/WI/gVCFs/"
+        }
+    }
+
+    // set default project and ws build for species
+    if(species == "c_elegans") {
+        params.project="PRJNA13758"
+        params.ws_build="WS283"
+    } else if(species == "c_briggsae") {
+        params.project="QX1410_nanopore"
+        params.ws_build="Feb2020"
+    } else if(species == "c_tropicalis") {
+        params.project="NIC58_nanopore"
+        params.ws_build="June2021"
+    }
+
+    // check reference
+    if (params.reference == null){
+        if(params.data_path != null && (species == "c_elegans" | species == "c_briggsae" | species == "c_tropicalis")) {
+            reference = "${params.data_path}/${species}/genomes/${params.project}/${params.ws_build}/${species}.${params.project}.${params.ws_build}.genome.fa.gz"
+        } else if (params.help) {
+            reference = null
+        } else { 
+            println """
+            Please specify c_elegans, c_brigssae, or c_tropicalis as the species with option --species
+            or a reference genome with --reference
+            """
+            exit 1
+        }
+    } else {
+        reference = params.reference
+    }
+
+    if (reference != null){
+        ref_base = reference.take(reference.take(reference.lastIndexOf('.') - 1).lastIndexOf("."))
+        reference_fa = "${reference}"
+        reference_index = "${reference}.fai"
+        reference_dict = "${ref_base}.dict"
+        reference_gzi = "${reference}.gzi"
+    }
+
+    if (params.gtcheck == "skip" || params.gtcheck == "within") {
+        gt_strategy = params.gtcheck
+        full_vcf = null
+    } else {
+        gt_strategy = "full"
+        full_vcf = params.gtcheck
+    }
+
+
+
+    log.info(log_summary())
+
+    if (params.help == true) {
+        exit 1
+    }
+
+    now = new Date()
+    timestamp = now.format("yyyyMMdd-HH-mm-ss")
+    log.info("Started running ${now}")
+
+    ch_versions = channel.empty()
 
     // Read sample sheet
-    sample_sheet_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+    sample_sheet_ch = channel.fromPath(params.sample_sheet, checkIfExists: true)
         .ifEmpty { exit 1, "sample sheet not found" }
 
     // Make channel for reference
-    reference_ch = Channel.of( ["id": species] )
-        .combine(Channel.fromPath(reference_fa, checkIfExists: true))
-        .combine(Channel.fromPath(reference_index, checkIfExists: true))
-        .combine(Channel.fromPath(reference_dict, checkIfExists: true))
-        .combine(Channel.fromPath(reference_gzi, checkIfExists: true))
+    reference_ch = channel.of( ["id": species] )
+        .combine(channel.fromPath(reference_fa, checkIfExists: true))
+        .combine(channel.fromPath(reference_index, checkIfExists: true))
+        .combine(channel.fromPath(reference_dict, checkIfExists: true))
+        .combine(channel.fromPath(reference_gzi, checkIfExists: true))
         .first()
 
+    // Make gtcheck vcf file channel
+    if (full_vcf != null) {
+        full_vcf_ch = channel.of( [gt_strategy, [], []] )
+    } else {
+        full_vcf_ch = channel.of( gt_strategy )
+            .combine( channel.fromPath(full_vcf, checkIfExists: true) )
+            .combine( channel.fromPath("${full_vcf}.tbi", checkIfExists: true) )
+    }
+
     // Make channel of filter parameters
-    filter_ch = Channel.of( [min_depth: params.min_depth, qual: params.qual, fisherstrand: params.fisherstrand,
-                             quality_by_depth: params.quality_by_depth, strand_odds_ratio: params.strand_odds_ratio,
-                             high_missing: params.high_missing, high_heterozygosity: params.high_heterozygosity] )
+    filter_ch = channel.of( [
+        min_depth: params.min_depth, qual: params.qual, fisherstrand: params.fisherstrand,
+        quality_by_depth: params.quality_by_depth, strand_odds_ratio: params.strand_odds_ratio,
+        high_missing: params.high_missing, high_heterozygosity: params.high_heterozygosity
+    ] )
         .first()
 
     // Determine which samples are missing gVCF files and create them
-    CREATE_BAM_SAMPLE_SHEET( sample_sheet_ch,
-                             Channel.fromPath(bam_folder, checkIfExists: true),
-                             Channel.fromPath(gvcf_folder, checkIfExists: true) )
+    CREATE_BAM_SAMPLE_SHEET (
+        sample_sheet_ch,
+        channel.fromPath(bam_folder, checkIfExists: true),
+        channel.fromPath(gvcf_folder, checkIfExists: true)
+    )
 
     // Create channel of bams and indices
     bam_ch = CREATE_BAM_SAMPLE_SHEET.out.bam
         .splitCsv( strip: true )
-        .map{ it: [ [id: it[0], processing: "bam"], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] }
+        .map{ it -> [ [id:it[0], processing: "bam"], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] }
 
     premade_gvcf_ch = CREATE_BAM_SAMPLE_SHEET.out.gvcf
         .splitCsv( strip: true )
-        .map{ it: [ [id: it[0], processing: "gvcf"], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
+        .map{ it -> [ [id:it[0], processing: "gvcf"], file("${gvcf_folder}/${it[0]}.g.vcf.gz"), file("${gvcf_folder}/${it[0]}.g.vcf.gz.tbi") ] }
 
     sample_ch = bam_ch
         .mix (premade_gvcf_ch)
@@ -258,21 +280,23 @@ workflow {
         }
 
     // Get contigs from bam file
-    SAMTOOLS_GET_CONTIGS( sample_sheet_ch.splitCsv( strip: true )
-        .first()
-        .map{ it: [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] },
-        params.partition )
+    SAMTOOLS_GET_CONTIGS (
+        sample_sheet_ch.splitCsv( strip: true )
+            .first()
+            .map{ it -> [ [id: it[0]], file("${bam_folder}/${it[0]}.bam"), file("${bam_folder}/${it[0]}.bam.bai") ] },
+            params.partition
+        )
     ch_versions = ch_versions.mix(SAMTOOLS_GET_CONTIGS.out.versions)
 
     if (partition_file == null) {
         partitions_ch = SAMTOOLS_GET_CONTIGS.out.partitions.splitCsv( strip: true, sep: "\t" )
-            .map{ it: [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: it[1]] }
+            .map{ it -> [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: it[1]] }
         partitions_file_ch = SAMTOOLS_GET_CONTIGS.out.partitions.first()
     } else {
-        partitions_ch = Channel.fromPath(partition_file, checkIfExists: true)
+        partitions_ch = channel.fromPath(partition_file, checkIfExists: true)
             .splitCsv( strip: true, sep: "\t" )
-            .map{ it: [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: (it[2].toInteger() - it[1].toInteger())] }
-        partitions_file_ch = Channel.fromPath(partition_file, checkIfExists: true).first()
+            .map{ it -> [interval: "${it[0]}:${it[1]}-${it[2]}", label:  "${it[0]}_${it[1]}_${it[2]}", contig: it[0], start: it[1], end: it[2], size: (it[2].toInteger() - it[1].toInteger())] }
+        partitions_file_ch = channel.fromPath(partition_file, checkIfExists: true).first()
     }
 
     ///////////////////////////////////////////////////////
@@ -282,23 +306,26 @@ workflow {
     // Create sample by contig channel
     bam_contig_ch = sample_ch.bam
         .combine(SAMTOOLS_GET_CONTIGS.out.contigs.splitCsv( strip: true ))
-        .map{ it: [[id: it[0].id, contig: it[3]], it[1], it[2]] }
+        .map{ it -> [[id: it[0].id, contig: it[3]], it[1], it[2]] }
 
     // Call variants in each sample/contig
-    GATK_HAPLOTYPECALLER( bam_contig_ch,
-                          reference_ch
-                        )
+    GATK_HAPLOTYPECALLER (
+        bam_contig_ch,
+        reference_ch
+    )
     ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
 
     // Group contig variant calls by sample
     gvcf_contig_ch = GATK_HAPLOTYPECALLER.out.vcf
-        .map{ it: [ it[0].id, it[1] ] }
+        .map{ it -> [ it[0].id, it[1] ] }
         .groupTuple()
-        .map{ it: [ [id: it[0]], it[1] ] }
+        .map{ it -> [ [id: it[0]], it[1] ] }
 
     // Combine contigs for each sample into single gVCF samples
-    BCFTOOLS_CONCAT_GVCFS( gvcf_contig_ch,
-                           SAMTOOLS_GET_CONTIGS.out.contigs )
+    BCFTOOLS_CONCAT_GVCFS (
+        gvcf_contig_ch,
+        SAMTOOLS_GET_CONTIGS.out.contigs
+    )
     ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_GVCFS.out.versions)
 
     // Collect concatenated gVCFs - because we might have an empty list, we need to use concat to force this to work
@@ -317,158 +344,186 @@ workflow {
         ///////////////////////////////////////////////////////
         
         sample_map_ch = sample_ch.gvcf
-            .map{ it: "${it[0].id}\tpremade_gvcfs/${it[0].id}.g.vcf.gz" }
+            .map{ it -> "${it[0].id}\tpremade_gvcfs/${it[0].id}.g.vcf.gz" }
             .concat( sample_ch.bam
-                .map{ it: "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" } )
+                .map{ it -> "${it[0].id}\tnew_gvcfs/${it[0].id}.g.vcf.gz" } )
             .collectFile(name: "sample_map.tsv", newLine: true)
             .first()
 
         // Create a genomics db for each contig
-        GATK_GENOMICSDBIMPORT( Channel.fromPath(gvcf_folder).first(),
-                               new_gvcf_ch,
-                               sample_map_ch,
-                               partitions_ch
-                             )
+        GATK_GENOMICSDBIMPORT (
+            channel.fromPath(gvcf_folder).first(),
+            new_gvcf_ch,
+            sample_map_ch,
+            partitions_ch
+        )
         ch_versions = ch_versions.mix(GATK_GENOMICSDBIMPORT.out.versions)
 
         // Genotype cohort contig db
-        GATK_GENOTYPEGVCFS( GATK_GENOMICSDBIMPORT.out.db,
-                            reference_ch,
-                            params.all_sites )
+        GATK_GENOTYPEGVCFS (
+            GATK_GENOMICSDBIMPORT.out.db,
+            reference_ch,
+            params.all_sites
+        )
         ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
 
         // Concatenate VCFs by contig and perform het polarization
-        LOCAL_HETPOLARIZATION( GATK_GENOTYPEGVCFS.out.vcf,
-                               params.mito_name,
-                               params.all_sites )
+        if (params.all_sites) {
+            ch_hetpol_vcf = GATK_GENOTYPEGVCFS.out.vcf
+                .map { row -> [row[0] + [sites:"invariant", all_sites:true], row[1]] }
+                .mix (
+                    GATK_GENOTYPEGVCFS.out.vcf
+                        .map { row -> [row[0] + [sites:"variant", all_sites:true], row[1]] }
+                )
+        } else {
+            ch_hetpol_vcf = GATK_GENOTYPEGVCFS.out.vcf
+                .map { row -> [row[0] + [sites:"variant", all_sites:false], row[1]] }
+        }
+
+        LOCAL_HETPOLARIZATION (
+            ch_hetpol_vcf,
+            params.mito_name
+        )
         ch_versions = ch_versions.mix(LOCAL_HETPOLARIZATION.out.versions)
 
         // Mark filtered genotypes/variants with GATK
-        GATK_SOFT_FILTER( filter_ch,
-                          LOCAL_HETPOLARIZATION.out.vcf,
-                          reference_ch )
+        GATK_SOFT_FILTER (
+            filter_ch,
+            LOCAL_HETPOLARIZATION.out.vcf,
+            reference_ch
+        )
         ch_versions = ch_versions.mix(GATK_SOFT_FILTER.out.versions)
 
         // Mark filtered genotypes/variants with bcftools and remove them
-        LOCAL_FILTER( filter_ch,
-                      GATK_SOFT_FILTER.out.vcf,
-                      reference_ch,
-                      params.mito_name,
-                      params.all_sites )
+        LOCAL_FILTER (
+            filter_ch,
+            GATK_SOFT_FILTER.out.vcf,
+            reference_ch,
+            params.mito_name
+        )
         ch_versions = ch_versions.mix(LOCAL_FILTER.out.versions)
 
-        // Concat partitioned filtered vcfs
         if (params.all_sites) {
+            ch_paired_allsites = LOCAL_FILTER.out.allsites
+                .map { row -> tuple(row[0].label, row) }
+                .groupTuple( )
+                .map { key, values -> values.toSorted() }
+                .view()
+                .map { row -> [row[0][0], row[0][1], row[0][2], row[1][1], row[1][2]] }
+
+            BCFTOOLS_JOINSORT (
+                ch_paired_allsites
+            )
+            ch_versions = ch_versions.mix(BCFTOOLS_JOINSORT.out.versions)
+
             // Collect cohort VCFs by contig for concatenation
-            all_cohort_contig_ch = LOCAL_FILTER.out.allsites
-                .map{ it: [it[0].contig, it[1], it[2]] } 
-                .groupTuple()
-                .map{ it: [[contig: it[0], id: "all"], it[1], it[2]] }
-
-            BCFTOOLS_CONCAT_OVERLAPPING_ALL( all_cohort_contig_ch,
-                                             partitions_file_ch )
-
-            // Collect genotyped concatenated contigs together
-            all_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_ALL.out.vcf
-                .map{ it: it[1] }
-                .toSortedList()
-                .map{ it: [[id: "all"], it] }
-
-            // Combine contigs for soft-filtered variant calls
-            BCFTOOLS_CONCAT_ALL_VCFS( all_vcf_ch,
-                                      SAMTOOLS_GET_CONTIGS.out.contigs )
-            ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_ALL_VCFS.out.versions)
-
-            ch_all_vcf       = BCFTOOLS_CONCAT_ALL_VCFS.out.vcf
-            ch_soft_vcf       = Channel.empty()
-            ch_hard_vcf       = Channel.empty()
-            ch_filter_stats   = Channel.empty()
-            ch_soft_stats     = Channel.empty()
-            ch_hard_stats     = Channel.empty()
-            ch_multiqc_report = Channel.empty()
-            ch_multiqc_json   = Channel.empty()
-            ch_local_report   = Channel.empty()
-
+            all_cohort_contig_ch = BCFTOOLS_JOINSORT.out.vcf
+                .map { it -> [it[0].contig, it[1], it[2]] } 
+                .groupTuple( )
+                .map { it -> [[contig: it[0], id: "all"], it[1].sort(), it[2].sort()] }
         } else {
-            // Collect cohort VCFs by contig for concatenation
-            soft_cohort_contig_ch = LOCAL_FILTER.out.soft
-                .map{ it: [it[0].contig, it[1], it[2]] } 
-                .groupTuple()
-                .map{ it: [[contig: it[0], id: "soft"], it[1], it[2]] }
-
-            hard_cohort_contig_ch = LOCAL_FILTER.out.hard
-                .map{ it: [it[0].contig, it[1], it[2]] } 
-                .groupTuple()
-                .map{ it: [[contig: it[0], id: "hard"], it[1], it[2]] }
-            BCFTOOLS_CONCAT_OVERLAPPING_SOFT( soft_cohort_contig_ch,
-                                            partitions_file_ch )
-
-            BCFTOOLS_CONCAT_OVERLAPPING_HARD( hard_cohort_contig_ch,
-                                            partitions_file_ch )
-
-            // Collect genotyped concatenated contigs together
-            soft_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_SOFT.out.vcf
-                .map{ it: it[1] }
-                .toSortedList()
-                .map{ it: [[id: "soft"], it] }
-
-            hard_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_HARD.out.vcf
-                .map{ it: it[1] }
-                .toSortedList()
-                .map{ it: [[id: "hard"], it] }
-
-            // Combine contigs for soft-filtered variant calls
-            BCFTOOLS_CONCAT_SOFT_VCFS( soft_vcf_ch,
-                                       SAMTOOLS_GET_CONTIGS.out.contigs )
-            ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_SOFT_VCFS.out.versions)
-
-            // Combine contigs for hard-filtered variant calls
-            BCFTOOLS_CONCAT_HARD_VCFS( hard_vcf_ch,
-                                       SAMTOOLS_GET_CONTIGS.out.contigs )
-            ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_HARD_VCFS.out.versions)
-
-            // Get filtering stats for filtered VCFs
-            LOCAL_VCF_STATS( BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf,
-                            BCFTOOLS_CONCAT_HARD_VCFS.out.vcf )
-            ch_versions = ch_versions.mix(LOCAL_VCF_STATS.out.versions)
-
-            // Create multiqc report
-            MULTIQC_REPORT( LOCAL_VCF_STATS.out.soft_stats
-                                .concat(LOCAL_VCF_STATS.out.hard_stats)
-                                .collect() )
-            ch_versions = ch_versions.mix(MULTIQC_REPORT.out.versions)
-
-            // Create GATK report
-            LOCAL_REPORT( MULTIQC_REPORT.out.report,
-                        LOCAL_VCF_STATS.out.soft_filter_stats,
-                        LOCAL_VCF_STATS.out.soft_stats,
-                        LOCAL_VCF_STATS.out.hard_stats,
-                        "${workflow.projectDir}/bin/gatk_report.Rmd",
-                        params.timestamp )
-            ch_versions = ch_versions.mix(LOCAL_REPORT.out.versions)
-
-            ch_all_vcf        = Channel.empty()
-            ch_soft_vcf       = BCFTOOLS_CONCAT_SOFT_VCFS.out.vcf
-            ch_hard_vcf       = BCFTOOLS_CONCAT_HARD_VCFS.out.vcf
-            ch_filter_stats   = LOCAL_VCF_STATS.out.soft_filter_stats
-            ch_soft_stats     = LOCAL_VCF_STATS.out.soft_stats
-            ch_hard_stats     = LOCAL_VCF_STATS.out.hard_stats
-            ch_multiqc_report = MULTIQC_REPORT.out.report
-            ch_multiqc_json   = MULTIQC_REPORT.out.json
-            ch_local_report   = LOCAL_REPORT.out.html
+            all_cohort_contig_ch = channel.empty()
         }
 
 
+        soft_cohort_contig_ch = LOCAL_FILTER.out.soft
+            .map{ it -> [it[0].contig, it[1], it[2]] } 
+            .groupTuple()
+            .map{ it -> [[contig: it[0], id: "soft"], it[1].sort(), it[2].sort()] }
+
+        hard_cohort_contig_ch = LOCAL_FILTER.out.hard
+            .map{ it -> [it[0].contig, it[1], it[2]] } 
+            .groupTuple()
+            .map{ it -> [[contig: it[0], id: "hard"], it[1].sort(), it[2].sort()] }
+
+        cohort_contig_ch = all_cohort_contig_ch
+            .mix ( soft_cohort_contig_ch )
+            .mix ( hard_cohort_contig_ch )
+
+        BCFTOOLS_CONCAT_OVERLAPPING_VCFS (
+            cohort_contig_ch,
+            partitions_file_ch
+        )
+        ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_OVERLAPPING_VCFS.out.versions)
+
+        // Collect genotyped concatenated contigs together
+        contig_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_VCFS.out.vcf
+            .map{ it -> [it[0].sites, it[1]] }
+            .groupTuple()
+            .map{ it -> [[id: it[0]], it[1].sort()] }
+
+        // Combine contigs for soft-filtered variant calls
+        BCFTOOLS_CONCAT_VCFS (
+            contig_vcf_ch,
+            SAMTOOLS_GET_CONTIGS.out.contigs
+        )
+        ch_versions = ch_versions.mix(BCFTOOLS_CONCAT_VCFS.out.versions)
+
+        concatenated_vcf_ch = BCFTOOLS_CONCAT_VCFS.out.vcf
+            .branch { it ->
+                soft: it[0].id == 'soft'
+                hard: it[0].id == 'hard'
+                all:  it[0].id == 'all'
+            }
+
+        // Get filtering stats for filtered VCFs
+        LOCAL_VCF_STATS (
+            concatenated_vcf_ch.soft.first(),
+            concatenated_vcf_ch.hard.first()
+        )
+        ch_versions = ch_versions.mix(LOCAL_VCF_STATS.out.versions)
+
+        // Create multiqc report
+        MULTIQC_REPORT (
+            LOCAL_VCF_STATS.out.soft_stats
+            .concat(LOCAL_VCF_STATS.out.hard_stats)
+            .collect()
+        )
+        ch_versions = ch_versions.mix(MULTIQC_REPORT.out.versions)
+
+        // Create GATK report
+        LOCAL_REPORT(
+            MULTIQC_REPORT.out.report,
+            LOCAL_VCF_STATS.out.soft_filter_stats,
+            LOCAL_VCF_STATS.out.soft_stats,
+            LOCAL_VCF_STATS.out.hard_stats,
+            "${workflow.projectDir}/bin/gatk_report.Rmd",
+            params.timestamp
+        )
+        ch_versions = ch_versions.mix(LOCAL_REPORT.out.versions)
+
+        if (gt_strategy != "skip") {
+            GTCHECK(
+                concatenated_vcf_ch.hard,
+                full_vcf_ch
+            )
+            ch_gtcheck = GTCHECK.out.gt
+            ch_versions = ch_versions.mix(GTCHECK.out.versions)
+        } else {
+            ch_gtcheck = channel.empty()
+        }
+
+        ch_all_vcf        = concatenated_vcf_ch.all
+        ch_soft_vcf       = concatenated_vcf_ch.soft
+        ch_hard_vcf       = concatenated_vcf_ch.hard
+        ch_filter_stats   = LOCAL_VCF_STATS.out.soft_filter_stats
+        ch_soft_stats     = LOCAL_VCF_STATS.out.soft_stats
+        ch_hard_stats     = LOCAL_VCF_STATS.out.hard_stats
+        ch_multiqc_report = MULTIQC_REPORT.out.report
+        ch_multiqc_json   = MULTIQC_REPORT.out.json
+        ch_local_report   = LOCAL_REPORT.out.html
+
     } else {
-        ch_all_vcf        = Channel.empty()
-        ch_soft_vcf       = Channel.empty()
-        ch_hard_vcf       = Channel.empty()
-        ch_filter_stats   = Channel.empty()
-        ch_soft_stats     = Channel.empty()
-        ch_hard_stats     = Channel.empty()
-        ch_multiqc_report = Channel.empty()
-        ch_multiqc_json   = Channel.empty()
-        ch_local_report   = Channel.empty()
+        ch_all_vcf        = channel.empty()
+        ch_soft_vcf       = channel.empty()
+        ch_hard_vcf       = channel.empty()
+        ch_filter_stats   = channel.empty()
+        ch_soft_stats     = channel.empty()
+        ch_hard_stats     = channel.empty()
+        ch_gtcheck        = channel.empty()
+        ch_multiqc_report = channel.empty()
+        ch_multiqc_json   = channel.empty()
+        ch_local_report   = channel.empty()
     }
 
     // Collate and save software versions
@@ -487,6 +542,7 @@ workflow {
     ch_multiqc_report             >> "report"
     ch_multiqc_json               >> "report"
     ch_local_report               >> "report"
+    ch_gtcheck                    >> "variation"
     ch_collated_versions          >> "."
 }
 
