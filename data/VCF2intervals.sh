@@ -5,7 +5,7 @@
 LINES=$(zcat $2 | grep -v "^#" | wc -l | cut -f 1 -d" ")
 zcat $2 | \
 grep -v "^#" | \
-awk -v LINES="${LINES}" -v BREAKS="$3"'
+awk -v LINES="${LINES}" -v BREAKS="$3" '
 BEGIN{
     START=1;
     STOP=1;
@@ -19,14 +19,10 @@ BEGIN{
     } else {
         if ($1 != CHROM) {
             if (SKIP == FALSE) {
-                if (STOP + 300 > CHROM_STOP[CHROM]) {
-                    EFF_STOP = CHROM_STOP[CHROM];
-                } else {
-                    EFF_STOP = STOP + 300;
-                }
+                EFF_STOP = CHROM_STOP[CHROM];
                 printf "%s\t%i\t%i\n", CHROM, START, EFF_STOP;
             }
-            SKIP=FALSE
+            SKIP=FALSE;
             START=1;
             STOP=1;
             CHROM=$1;
@@ -49,11 +45,7 @@ BEGIN{
     }
 }END{
     if (SKIP == FALSE) {
-        if (STOP + 300 > CHROM_STOP[CHROM]) {
-            EFF_STOP = CHROM_STOP[CHROM];
-        } else {
-            EFF_STOP = STOP + 300;
-        }
+        EFF_STOP = CHROM_STOP[CHROM];
         printf "%s\t%i\t%i\n", CHROM, START, EFF_STOP;
     }
 }' $1 -

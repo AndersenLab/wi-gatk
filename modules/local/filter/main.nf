@@ -34,7 +34,7 @@ process LOCAL_FILTER {
    
     # Create hard-filtered version by removing marked genotypes/variants
     if [ "${meta.sites}" == "invariant" ]; then
-        if [ ${meta.contig} == "${mito_name}" ]
+        if [ "${meta.contig}" == "${mito_name}" ]
         then
             bcftools view -M2 --trim-alt-alleles -O u ${meta.label}.soft.vcf.gz | \\
             bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth"' | \\
@@ -49,7 +49,7 @@ process LOCAL_FILTER {
             bcftools view -O z --trim-alt-alleles > ${meta.label}.hard.vcf.gz
         fi
     else
-        if [ ${meta.contig} == "${mito_name}" ]
+        if [ "${meta.contig}" == "${mito_name}" ]
         then
             bcftools view -m2 -M2 --trim-alt-alleles -O u ${meta.label}.soft.vcf.gz | \\
             bcftools filter -O u --set-GTs . --exclude 'FORMAT/FT ~ "DP_min_depth"' | \\
