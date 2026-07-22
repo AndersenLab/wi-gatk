@@ -28,57 +28,57 @@ include { LOCAL_REPORT                                      } from "./modules/lo
 // Needed to publish results
 nextflow.preview.output = true
 
-def log_summary() {
+// def log_summary() {
 
-    out =  '''
- _______ _______ _______ __  __      _______ _______ 
-|     __|   _   |_     _|  |/  |    |    |  |    ___|
-|    |  |       | |   | |     <     |       |    ___|
-|_______|___|___| |___| |__|\\__|    |__|____|___|    
+//     out =  '''
+//  _______ _______ _______ __  __      _______ _______ 
+// |     __|   _   |_     _|  |/  |    |    |  |    ___|
+// |    |  |       | |   | |     <     |       |    ___|
+// |_______|___|___| |___| |__|\\__|    |__|____|___|    
                                               
-'''
+// '''
 
-out += """
+// out += """
 
-To run the pipeline:
+// To run the pipeline:
 
-nextflow main.nf --help
-nextflow main.nf --debug
-nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam_location=/path/to/bams --gvcf_location=/path/to/gvcfs
+// nextflow main.nf --help
+// nextflow main.nf --debug
+// nextflow main.nf --sample_sheet=/path/sample_sheet.txt --species c_elegans --bam_location=/path/to/bams --gvcf_location=/path/to/gvcfs
 
-    parameters                 description                           Set/Default
-    ==========                 ===========                           ========================
-    --debug                    Use --debug to indicate debug mode    ${params.debug}
-    --species                  Species to call variants from         ${species}
-    --sample_sheet             Sample sheet                          ${params.sample_sheet}
-    --bam_location             Directory of BAM files                ${bam_folder}
-    --gvcf_location            Directory of gVCF files               ${gvcf_folder}
-    --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
-    --all_sites                Include all invariant sites           ${params.all_sites}
-    --partition                Partition size in bp for subsetting   ${params.partition}
-    --partition_file           File containing partition coordinates ${partition_file}
-    --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
-    --gtcheck                  Gtcheck strategy or strain VCF        ${params.gtcheck}
-    --username                                                       ${"whoami".execute().in.text}
+//     parameters                 description                           Set/Default
+//     ==========                 ===========                           ========================
+//     --debug                    Use --debug to indicate debug mode    ${params.debug}
+//     --species                  Species to call variants from         ${params.species}
+//     --sample_sheet             Sample sheet                          ${params.sample_sheet}
+//     --bam_location             Directory of BAM files                ${bam_folder}
+//     --gvcf_location            Directory of gVCF files               ${gvcf_folder}
+//     --mito_name                Contig not to polarize hetero sites   ${params.mito_name}
+//     --all_sites                Include all invariant sites           ${params.all_sites}
+//     --partition                Partition size in bp for subsetting   ${params.partition}
+//     --partition_file           File containing partition coordinates ${partition_file}
+//     --gvcf_only                Create sample gVCFs and stop          ${params.gvcf_only}
+//     --gtcheck                  Gtcheck strategy or strain VCF        ${params.gtcheck}
+//     --username                                                       ${"whoami".execute().in.text}
 
-    Reference Genome
-    --------------- 
-    --reference                The fa.gz reference file to use       ${reference}
+//     Reference Genome
+//     --------------- 
+//     --reference                The fa.gz reference file to use       ${reference}
 
-    Variant Filters         
-    ---------------           
-    --min_depth                Minimum variant depth                 ${params.min_depth}
-    --qual                     Variant QUAL score                    ${params.qual}
-    --strand_odds_ratio        SOR_strand_odds_ratio                 ${params.strand_odds_ratio} 
-    --quality_by_depth         QD_quality_by_depth                   ${params.quality_by_depth} 
-    --fisherstrand             FS_fisher_strand                      ${params.fisherstrand}
-    --high_missing             Max % missing genotypes               ${params.high_missing}
-    --high_heterozygosity      Max % max heterozygosity              ${params.high_heterozygosity}
+//     Variant Filters         
+//     ---------------           
+//     --min_depth                Minimum variant depth                 ${params.min_depth}
+//     --qual                     Variant QUAL score                    ${params.qual}
+//     --strand_odds_ratio        SOR_strand_odds_ratio                 ${params.strand_odds_ratio} 
+//     --quality_by_depth         QD_quality_by_depth                   ${params.quality_by_depth} 
+//     --fisherstrand             FS_fisher_strand                      ${params.fisherstrand}
+//     --high_missing             Max % missing genotypes               ${params.high_missing}
+//     --high_heterozygosity      Max % max heterozygosity              ${params.high_heterozygosity}
 
----
-"""
-out
-}
+// ---
+// """
+// out
+// }
 
 
 workflow {
@@ -215,7 +215,7 @@ workflow {
 
 
 
-    log.info(log_summary())
+    // log.info(log_summary())
 
     if (params.help == true) {
         exit 1
@@ -240,7 +240,7 @@ workflow {
         .first()
 
     // Make gtcheck vcf file channel
-    if (full_vcf != null) {
+    if (full_vcf == null) {
         full_vcf_ch = channel.of( [gt_strategy, [], []] )
     } else {
         full_vcf_ch = channel.of( gt_strategy )
@@ -448,7 +448,7 @@ workflow {
 
         // Collect genotyped concatenated contigs together
         contig_vcf_ch = BCFTOOLS_CONCAT_OVERLAPPING_VCFS.out.vcf
-            .map{ it -> [it[0].sites, it[1]] }
+            .map{ it -> [it[0].id, it[1]] }
             .groupTuple()
             .map{ it -> [[id: it[0]], it[1].sort()] }
 

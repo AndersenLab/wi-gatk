@@ -1,43 +1,59 @@
 #!/bin/bash
+# Usage VCF2intervals.sh <genome>.fai <vcf.gz> <breaks>
+
 
 LINES=$(zcat $2 | grep -v "^#" | wc -l | cut -f 1 -d" ")
 zcat $2 | \
 grep -v "^#" | \
-awk -v LINES="${LINES}" '
+awk -v LINES="${LINES}" -v BREAKS="$3"'
 BEGIN{
     START=1;
     STOP=1;
     CHROM="";
-    SPAN=int((LINES - 1)/200 + 1);
+    SPAN=int((LINES - 1)/BREAKS + 1);
     COUNT=0;
+    SKIP=TRUE;
 }{
     if (NR == FNR) {
-        if ($1 == "@SQ") {
-            split($2,CHROMNAME,":");
-            split($3,CHROMLEN,":");
-            CHROM_STOP[CHROMNAME[2]] = CHROMLEN[2];
-        }
+        CHROM_STOP[$1] = $2;
     } else {
         if ($1 != CHROM) {
-            if (CHROM != "") {
-                printf "%s\t%i\t%i\n", CHROM, START, STOP+300;
-                START=1;
-                STOP=CHROM_STOP[CHROM];
-                CHROM=$1;
-                COUNT=0;
-            } else {
-                CHROM=$1;
+            if (SKIP == FALSE) {
+                if (STOP + 300 > CHROM_STOP[CHROM]) {
+                    EFF_STOP = CHROM_STOP[CHROM];
+                } else {
+                    EFF_STOP = STOP + 300;
+                }
+                printf "%s\t%i\t%i\n", CHROM, START, EFF_STOP;
             }
+            SKIP=FALSE
+            START=1;
+            STOP=1;
+            CHROM=$1;
+            COUNT=0;
         } else if (COUNT == SPAN) {
-            printf "%s\t%i\t%i\n", CHROM, START, STOP+300;
+            if (STOP + 300 > CHROM_STOP[CHROM]) {
+                EFF_STOP = CHROM_STOP[CHROM];
+                SKIP = TRUE;
+            } else {
+                EFF_STOP = STOP + 300;
+            }
+            printf "%s\t%i\t%i\n", CHROM, START, EFF_STOP;
             START=STOP;
             STOP=$2;
             COUNT=1;
-        } else { 
+        } else if (SKIP == FALSE) { 
             COUNT+=1; 
             STOP=$2;
         }
     }
 }END{
-    printf "%s\t%i\t%i\n", CHROM, START, CHROM_STOP[CHROM];
+    if (SKIP == FALSE) {
+        if (STOP + 300 > CHROM_STOP[CHROM]) {
+            EFF_STOP = CHROM_STOP[CHROM];
+        } else {
+            EFF_STOP = STOP + 300;
+        }
+        printf "%s\t%i\t%i\n", CHROM, START, EFF_STOP;
+    }
 }' $1 -
